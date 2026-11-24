@@ -2885,7 +2885,6 @@ app.whenReady().then(async () => {
           respondToDisplayMediaRequest(callback, {});
           return;
         }
-
         const capabilities = desktopCapabilities({
           platform: process.platform,
           env: process.env,
