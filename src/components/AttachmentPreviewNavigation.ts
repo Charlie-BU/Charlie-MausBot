@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type MouseEvent, type PointerEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type MouseEvent, type PointerEvent, type RefObject } from "react";
 import type { PreviewImage } from "./AttachmentPreview";
 
 export function nextImageIndex(index: number, step: -1 | 1, count: number): number {
@@ -42,6 +42,10 @@ type Point = { x: number; y: number };
 type Zoom = Point & { scale: number };
 const FIT: Zoom = { x: 0, y: 0, scale: 1 };
 const TAP_DELAY_MS = 280;
+const WHEEL_IDLE_MS = 160;
+const SWIPE_THRESHOLD = 48;
+
+type SafariPinchEvent = globalThis.MouseEvent & { scale: number };
 
 function pinchBetween([first, second]: Point[]) {
   return {
@@ -74,6 +78,7 @@ function zoomAt(view: HTMLDivElement, base: Zoom, from: Point, to: Point, scale:
 }
 
 export function usePreviewGestures(
+  dialogRef: RefObject<HTMLDivElement | null>,
   index: number,
   count: number,
   navigate: (step: -1 | 1) => void,
@@ -116,6 +121,75 @@ export function usePreviewGestures(
   useEffect(() => clearTap, [clearTap]);
   useEffect(() => { clearTap(); updateZoom(FIT); }, [index, clearTap, updateZoom]);
 
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    const view = dialog;
+    let idle: ReturnType<typeof setTimeout> | undefined;
+    let swipe = { x: 0, y: 0, switched: false };
+    let safariPinch: { zoom: Zoom; point: Point } | null = null;
+
+    function zoomWith(base: Zoom, point: Point, factor: number) {
+      const scale = Math.max(1, Math.min(4, base.scale * factor));
+      updateZoom(scale === 1 ? FIT : zoomAt(view, base, point, point, scale));
+    }
+
+    function wheel(event: WheelEvent) {
+      if (event.target instanceof Element && event.target.closest("[role=group]")) return;
+      const { deltaMode, ctrlKey, clientX, clientY } = event;
+      const unit = deltaMode === 1 ? 16 : deltaMode === 2 ? view.clientHeight : 1;
+      const x = event.deltaX * unit, y = event.deltaY * unit;
+      if (ctrlKey) {
+        event.preventDefault();
+        clearTap();
+        if (!safariPinch && points.current.size === 0) {
+          zoomWith(zoomRef.current, { x: clientX, y: clientY }, Math.exp(-y / 100));
+        }
+        return;
+      }
+      const current = zoomRef.current;
+      if (current.scale > 1) {
+        event.preventDefault();
+        updateZoom(boundedZoom(view, { ...current, x: current.x - x, y: current.y - y }));
+        return;
+      }
+      if (Math.abs(x) > Math.abs(y)) event.preventDefault();
+      clearTimeout(idle);
+      // Wheel events include momentum after the fingers lift, so only step once per uninterrupted gesture.
+      idle = setTimeout(() => { swipe = { x: 0, y: 0, switched: false }; }, WHEEL_IDLE_MS);
+      if (swipe.switched) return;
+      swipe.x += x;
+      swipe.y += y;
+      if (Math.abs(swipe.x) >= SWIPE_THRESHOLD && Math.abs(swipe.x) > Math.abs(swipe.y)) {
+        swipe.switched = true;
+        clearTap();
+        navigate(swipe.x > 0 ? 1 : -1);
+      }
+    }
+
+    function gesture(event: Event) {
+      event.preventDefault();
+      if (event.type === "gestureend") { safariPinch = null; return; }
+      if (points.current.size > 0) return;
+      const { clientX: x, clientY: y, scale } = event as SafariPinchEvent;
+      if (event.type === "gesturestart") {
+        clearTap();
+        safariPinch = { zoom: zoomRef.current, point: { x, y } };
+      } else if (safariPinch) {
+        zoomWith(safariPinch.zoom, safariPinch.point, scale);
+      }
+    }
+
+    view.addEventListener("wheel", wheel, { passive: false });
+    const gestures = ["gesturestart", "gesturechange", "gestureend"];
+    for (const name of gestures) view.addEventListener(name, gesture, { passive: false });
+    return () => {
+      clearTimeout(idle);
+      view.removeEventListener("wheel", wheel);
+      for (const name of gestures) view.removeEventListener(name, gesture);
+    };
+  }, [dialogRef, navigate, clearTap, updateZoom]);
+
   const finish = (event: PointerEvent<HTMLDivElement>, cancelled = false) => {
     if (!points.current.delete(event.pointerId) || points.current.size > 0) return;
     const initial = start.current;
@@ -131,7 +205,7 @@ export function usePreviewGestures(
     setDrag(null);
     if (!cancelled && initial && gesture === "horizontal") {
       const dx = event.clientX - initial.x;
-      if (Math.abs(dx) >= 48) navigate(dx < 0 ? 1 : -1);
+      if (Math.abs(dx) >= SWIPE_THRESHOLD) navigate(dx < 0 ? 1 : -1);
     }
   };
 

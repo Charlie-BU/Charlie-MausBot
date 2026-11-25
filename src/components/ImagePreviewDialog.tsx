@@ -51,7 +51,7 @@ export function AttachmentPreviewDialog({
     setMenu(null);
     setIndex((value) => nextImageIndex(value, step, items.length));
   }, [items.length, cancelPress]);
-  const { trackRef, zoom, animateZoom, handlers, tapSurface, clearTap } = usePreviewGestures(index, items.length, navigate, motion.dismiss, cancelPress);
+  const { trackRef, zoom, animateZoom, handlers, tapSurface, clearTap } = usePreviewGestures(dialogRef, index, items.length, navigate, motion.dismiss, cancelPress);
 
   useEffect(() => {
     if (!motion.open) return;
@@ -133,7 +133,7 @@ export function AttachmentPreviewDialog({
       aria-modal="true"
       aria-label={t("attach.previewAria", { name: current.name })}
       tabIndex={-1}
-      className="fixed inset-0 z-[70] flex touch-none items-center justify-center overflow-hidden bg-black outline-none"
+      className="fixed inset-0 z-[70] flex touch-none items-center justify-center overflow-hidden overscroll-none bg-black outline-none"
       {...handlers}
       onClick={event => {
         if (menu && !menuRef.current?.contains(event.target as Node)) {

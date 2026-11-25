@@ -400,6 +400,56 @@ describe("full-screen image actions", () => {
     }
   });
 
+  it("turns one image per horizontal trackpad gesture and ignores vertical scroll", async () => {
+    vi.useFakeTimers();
+    const { dialog, close } = await openPreview([image, { ...image, src: "/next.png", name: "next.png" }, { ...image, src: "/last.png", name: "last.png" }]);
+    const active = () => dialog.querySelector<HTMLImageElement>("[data-preview-active-image]")!.alt;
+    async function wheel(deltaX: number, deltaY = 0) {
+      const event = new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaX, deltaY });
+      await act(() => dialog.dispatchEvent(event));
+      return event;
+    }
+    try {
+      await wheel(20, 90);
+      expect(active()).toBe("shot.png");
+      await act(() => { vi.advanceTimersByTime(200); });
+      expect((await wheel(30)).defaultPrevented).toBe(true);
+      await wheel(30);
+      expect(active()).toBe("next.png");
+      await wheel(100);
+      expect(active()).toBe("next.png");
+      await act(() => { vi.advanceTimersByTime(200); });
+      await wheel(-60);
+      expect(active()).toBe("shot.png");
+    } finally {
+      await close();
+      vi.useRealTimers();
+    }
+  });
+
+  it.each(["wheel", "Safari"])("zooms in and out with desktop %s pinch events", async engine => {
+    const { dialog, close } = await openPreview();
+    const active = dialog.querySelector<HTMLImageElement>("[data-preview-active-image]")!;
+    async function pinch(type: string, scale: number) {
+      const event = engine === "wheel"
+        ? new WheelEvent("wheel", { bubbles: true, cancelable: true, ctrlKey: true, deltaY: -100 * Math.log(scale) })
+        : Object.assign(new MouseEvent(type, { bubbles: true, cancelable: true }), { scale });
+      if (engine === "wheel") Object.defineProperty(event, "ctrlKey", { value: true });
+      await act(() => dialog.dispatchEvent(event));
+      expect(event.defaultPrevented).toBe(true);
+    }
+    try {
+      if (engine === "Safari") await pinch("gesturestart", 1);
+      await pinch("gesturechange", 2);
+      expect(active.style.transform).toContain("scale(2)");
+      await pinch("gesturechange", engine === "wheel" ? 0.5 : 1);
+      expect(active.style.transform).toContain("scale(1)");
+      if (engine === "Safari") await pinch("gestureend", 1);
+    } finally {
+      await close();
+    }
+  });
+
   it("has no navigation icons, toggles zoom on double click and dismisses on a single image click", async () => {
     vi.useFakeTimers();
     const { dialog, onClose, close } = await openPreview([image, { ...image, src: "/next.png" }]);
