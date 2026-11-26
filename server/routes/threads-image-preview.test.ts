@@ -25,3 +25,19 @@ it("serves the referenced public image without requiring CORS and rejects a non-
   await route(ctx);
   expect(ctx.json).toHaveBeenCalledWith(res, 415, expect.anything());
 });
+
+it("does not fetch URLs supplied as ordinary file links", async () => {
+  vi.mocked(fetchPublicPage).mockClear();
+  const route = createThreadRoutes({
+    store: { botByThread: () => ({}), messagesFor: () => [{ id: "m", kind: "text", text: "[image](https://images.example/photo.webp)" }] },
+    viewerFor: () => ({}), visibleTo: () => ({}), workspaceAccess: () => null,
+    desktopMutationToken: () => undefined, companionMutationToken: () => undefined, cliOwnerToken: () => undefined,
+  } as unknown as ThreadRouteDeps);
+  const path = "/api/threads/t/messages/m/file";
+  const res = { writeHead: vi.fn(), end: vi.fn() };
+  const ctx = { method: "GET", path, url: new URL(path + "?preview=1&ref=0&asset=link", "http://localhost"),
+    auth: { kind: "loopback" }, req: { headers: {} }, res, json: vi.fn() } as unknown as RouteContext;
+  await route(ctx);
+  expect(ctx.json).toHaveBeenCalledWith(res, 403, expect.anything());
+  expect(fetchPublicPage).not.toHaveBeenCalled();
+});

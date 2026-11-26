@@ -66,3 +66,14 @@ describe("the group beneath a reply", () => {
     expect(markup).not.toContain("max-h-72");
   });
 });
+
+it("renders legacy image attachments and local image links as scoped thumbnails", () => {
+  const text = "See [diagram](/work/diagram.svg) and [photo](/work/photo.AVIF).";
+  const { files } = replyAttachmentGroup(text, [deliver("scan.TIFF"), deliver("brief.pdf")]);
+  const html = renderToStaticMarkup(createElement(AttachmentGallery, { files, message, photoStrip: "oriented" }));
+  expect(html).toContain("ref=0&amp;asset=attachment");
+  expect(html).toContain("ref=4&amp;asset=link");
+  expect(html).toContain(`ref=${text.indexOf("[photo]")}&amp;asset=link`);
+  expect(html).not.toContain("/work/");
+  expect(html).toContain("Save a copy of brief.pdf");
+});

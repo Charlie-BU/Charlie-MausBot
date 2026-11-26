@@ -75,8 +75,9 @@ export function imageGalleryLayout(count: number): string {
 export function messageImagePreviewUrl(
   message: MessageAttachmentContext,
   sourceOffset: number,
+  asset?: "attachment" | "link",
 ): string {
-  return `/api/threads/${encodeURIComponent(message.threadId)}/messages/${encodeURIComponent(message.messageId)}/file?preview=1&ref=${sourceOffset}`;
+  return `/api/threads/${encodeURIComponent(message.threadId)}/messages/${encodeURIComponent(message.messageId)}/file?preview=1&ref=${sourceOffset}${asset ? `&asset=${asset}` : ""}`;
 }
 
 export async function messageImageOutsideWorkspace(src: string): Promise<boolean> {
@@ -346,6 +347,7 @@ export function AttachmentThumbnail({
   explainRefusal = false,
   gallery,
   layout,
+  fallback,
 }: {
   image: PreviewImage;
   onPreview: (images: PreviewImage[]) => void;
@@ -354,6 +356,7 @@ export function AttachmentThumbnail({
   className?: string;
   eager?: boolean;
   explainRefusal?: boolean;
+  fallback?: React.ReactNode;
 }) {
   // Callers key this by src: resetting in an effect races a cached image's onLoad, which can fire before the effect
   // runs.
@@ -362,6 +365,7 @@ export function AttachmentThumbnail({
   const [outsideWorkspace, setOutsideWorkspace] = useState(false);
   const [ratio, setRatio] = useState<number | null>(null);
 
+  if (state === "failed" && fallback) return fallback;
   const previewItems = gallery ?? [image];
   const layoutClass = layout === "square" ? CHAT_IMAGE_THUMBNAIL
     : layout === "oriented" ? (ratio !== null && ratio < 1 ? "w-36 aspect-[3/4]" : "w-48 aspect-[4/3]") : undefined;

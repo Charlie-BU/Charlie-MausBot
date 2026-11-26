@@ -201,7 +201,7 @@ export function messageFileTargets(text: string): string[] {
 }
 
 /** Definitions are collected first: CommonMark lets them follow the reference. */
-export function messageImageTargetAt(text: string, sourceOffset: number): string | null {
+export function messageImageTargetAt(text: string, sourceOffset: number, link = false): string | null {
   if (!Number.isSafeInteger(sourceOffset) || sourceOffset < 0) return null;
   const definitions = new Map<string, string>();
   let direct: string | null = null;
@@ -213,8 +213,8 @@ export function messageImageTargetAt(text: string, sourceOffset: number): string
       return;
     }
     if (node.position?.start.offset !== sourceOffset) return;
-    if (node.type === "image" && node.url) direct = node.url;
-    else if (node.type === "imageReference" && node.identifier) reference = node.identifier;
+    if (node.type === (link ? "link" : "image") && node.url) direct = node.url;
+    else if (node.type === (link ? "linkReference" : "imageReference") && node.identifier) reference = node.identifier;
   });
 
   return direct ?? (reference ? definitions.get(reference) ?? null : null);
@@ -346,6 +346,14 @@ export function mimeFor(path: string): string {
     case ".jpeg": return "image/jpeg";
     case ".gif": return "image/gif";
     case ".webp": return "image/webp";
+    case ".avif": return "image/avif";
+    case ".bmp": return "image/bmp";
+    case ".svg": return "image/svg+xml";
+    case ".ico": return "image/x-icon";
+    case ".heic": return "image/heic";
+    case ".heif": return "image/heif";
+    case ".tif":
+    case ".tiff": return "image/tiff";
     case ".mp4": return "video/mp4";
     case ".m4v": return "video/x-m4v";
     case ".webm": return "video/webm";

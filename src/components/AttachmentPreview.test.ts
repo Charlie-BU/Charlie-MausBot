@@ -400,55 +400,15 @@ describe("full-screen image actions", () => {
     }
   });
 
-  it("tracks horizontal wheel movement, settles once, and rebounds on a short swipe", async () => {
+  it("leaves the current picture still during unmodified horizontal trackpad scrolling", async () => {
     vi.useFakeTimers();
-    const { dialog, close } = await openPreview([image, { ...image, src: "/next.png", name: "next.png" }, { ...image, src: "/last.png", name: "last.png" }]);
+    const { dialog, close } = await openPreview([image, { ...image, src: "/next.png", name: "next.png" }]);
     const track = dialog.querySelector<HTMLElement>("[data-preview-track]")!;
-    Object.defineProperty(dialog, "clientWidth", { value: 600 });
-    const offset = () => track.style.getPropertyValue("--preview-drag-x");
-    const active = () => dialog.querySelector<HTMLImageElement>("[data-preview-active-image]")!.alt;
-    const settle = () => act(() => { vi.advanceTimersByTime(200); });
-    async function wheel(deltaX: number, deltaY = 0) {
-      const event = new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaX, deltaY });
-      await act(() => dialog.dispatchEvent(event));
-      return event;
-    }
     try {
-      await wheel(20, 90);
-      expect(offset()).toBe("");
-      expect(active()).toBe("shot.png");
-      expect((await wheel(25)).defaultPrevented).toBe(true);
-      expect(offset()).toBe("-25px");
-      await settle();
-      expect(offset()).toBe("");
-      expect(active()).toBe("shot.png");
-
-      await wheel(55);
-      await wheel(-35);
-      expect(offset()).toBe("-20px");
-      await settle();
-      expect(active()).toBe("shot.png");
-
-      await wheel(4, 3);
-      await wheel(4, 2);
-      await wheel(22, 6);
-      await wheel(30, 35);
-      expect(offset()).toBe("-60px");
-      expect(active()).toBe("shot.png");
-      await wheel(100);
-      expect(offset()).toBe("-160px");
-      await settle();
-      expect(offset()).toBe("");
-      expect(active()).toBe("next.png");
-
-      await wheel(-60);
-      expect(offset()).toBe("60px");
-      await settle();
-      expect(active()).toBe("shot.png");
-      await wheel(-60);
-      expect(offset()).toBe("12px");
-      await settle();
-      expect(active()).toBe("shot.png");
+      await act(() => dialog.dispatchEvent(new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaX: 100 })));
+      expect(track.style.getPropertyValue("--preview-drag-x")).toBe("");
+      await act(() => { vi.advanceTimersByTime(200); });
+      expect(dialog.querySelector<HTMLImageElement>("[data-preview-active-image]")?.alt).toBe("shot.png");
     } finally {
       await close();
       vi.useRealTimers();

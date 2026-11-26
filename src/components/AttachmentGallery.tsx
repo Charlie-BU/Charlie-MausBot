@@ -13,6 +13,7 @@ import {
   AttachmentPreviewDialog,
   AttachmentThumbnail,
   previewImage,
+  messageImagePreviewUrl,
   requestMessageFile,
   safeDownloadFilename,
   type MessageAttachmentContext,
@@ -23,6 +24,7 @@ import { useRevealOriginalMenu } from "./RevealOriginalMenu";
 
 export interface GalleryFile extends TranscriptFileAttachment {
   linked?: boolean;
+  imageRef?: { asset: "attachment" | "link"; index: number };
 }
 
 export function isImageOnlyMarkdown(text: string): boolean {
@@ -42,6 +44,7 @@ type MarkdownNode = {
   url?: string;
   identifier?: string;
   children?: MarkdownNode[];
+  position?: { start: { offset?: number } };
 };
 
 export function fileIdentity(path: string): string {
@@ -49,6 +52,8 @@ export function fileIdentity(path: string): string {
   if (/^file:\/\//i.test(path)) return localFilePath(path) ?? path;
   return decodedLinkPath(path);
 }
+
+const imageFile = (path: string) => /\.(?:avif|bmp|gif|heic|heif|ico|jpe?g|png|svg|tiff?|webp)$/i.test(fileIdentity(path));
 
 export function collectMessageFiles(text: string, existingPaths: readonly string[] = []): GalleryFile[] {
   const tree: MarkdownNode = fromMarkdown(text, { mdastExtensions: [windowsPathDestinations] });
@@ -73,7 +78,9 @@ export function collectMessageFiles(text: string, existingPaths: readonly string
     if (seen.has(identity)) return [];
     seen.add(identity);
     // Security: send the authored spelling; the server owns the one decode at its authorization boundary.
-    return [{ path: href, name: safeDownloadFilename(attachmentBasename(identity)), linked: true }];
+    const index = node.position?.start.offset;
+    const imageRef = index !== undefined && imageFile(identity) ? { asset: "link" as const, index } : undefined;
+    return [{ path: href, name: safeDownloadFilename(attachmentBasename(identity)), linked: true, ...(imageRef && { imageRef }) }];
   });
 }
 
@@ -95,9 +102,13 @@ export function splitMessageAttachments(attachments: readonly MessageAttachmentE
   const images: string[] = [];
   const files: GalleryFile[] = [];
   const originals: Record<string, string> = {};
-  for (const attachment of attachments) {
+  for (const [index, attachment] of attachments.entries()) {
     if (attachment.source && (attachment.kind === "file" || attachment.kind === "image")) originals[attachment.path] = attachment.source;
-    if (attachment.kind === "file") files.push({ path: attachment.path, name: attachment.name || attachmentBasename(attachment.path), private: true });
+    if (attachment.kind === "file" || (attachment.kind === "image" && !previewImage(attachment.path))) {
+      const name = attachment.name || attachmentBasename(attachment.path);
+      const imageRef = attachment.kind === "image" || imageFile(attachment.path) || imageFile(name) ? { asset: "attachment" as const, index } : undefined;
+      files.push({ path: attachment.path, name, private: true, ...(imageRef && { imageRef }) });
+    }
     else if (attachment.kind === "image" || attachment.kind === undefined) images.push(attachment.path);
   }
   return { images, files, originals };
@@ -117,13 +128,13 @@ export function replyAttachmentGroup(text: string, attachments: readonly Message
   const deliveredNames = new Map<string, number>();
   for (const file of attached.files) deliveredNames.set(file.name, (deliveredNames.get(file.name) ?? 0) + 1);
   for (const file of attached.files) {
-    if (linkedNames.has(file.name) && deliveredNames.get(file.name) === 1) delivered[file.name] = file.path;
+    if (!file.imageRef && linkedNames.has(file.name) && deliveredNames.get(file.name) === 1) delivered[file.name] = file.path;
     else files.push(file);
   }
-  const taken = new Set([...attached.images, ...attached.files.map((file) => file.path)].map(fileIdentity));
+  const taken = new Set([...attached.images, ...attached.files.map((file) => file.path), ...Object.values(attached.originals)].map(fileIdentity));
   for (const link of links) {
     if (Object.hasOwn(delivered, link.name) || taken.has(fileIdentity(link.path))) continue;
-    if (isVideoAttachment(link.path) || isAudioAttachment(link.path)) files.push(link);
+    if (link.imageRef || isVideoAttachment(link.path) || isAudioAttachment(link.path)) files.push(link);
   }
   return { images: attached.images, files, delivered, originals: attached.originals };
 }
@@ -137,7 +148,7 @@ export function MessageAttachmentGallery({ text, attachments = NO_GENERATED_ATTA
 }) {
   const attached = useMemo(() => splitMessageAttachments(attachments), [attachments]);
   const files = useMemo(
-    () => [...attached.files, ...collectMessageFiles(text, [...attached.images, ...attached.files.map((file) => file.path)])],
+    () => [...attached.files, ...collectMessageFiles(text, [...attached.images, ...attached.files.map((file) => file.path), ...Object.values(attached.originals)])],
     [text, attached],
   );
   return <AttachmentGallery images={attached.images} files={files} originals={attached.originals} message={message} eager={eager} photoStrip="oriented" className={className} />;
@@ -455,7 +466,7 @@ function AudioAttachment({ file, message }: { file: GalleryFile; message: Messag
 }
 
 type GalleryItem = { key: string; source?: string } & (
-  | { kind: "image"; image: PreviewImage }
+  | { kind: "image"; image: PreviewImage; fallback?: GalleryFile }
   | { kind: "video" | "audio" | "file"; file: GalleryFile }
 );
 
@@ -494,7 +505,13 @@ export function AttachmentGallery({ images = [], files = [], originals, message,
       if (seen.has(key)) continue;
       seen.add(key);
       const trusted = Boolean(message && (file.private || file.linked));
-      result.push({ key, source: originalOf(originals, file.path), kind: trusted && isVideoAttachment(file.path) ? "video" : trusted && isAudioAttachment(file.path) ? "audio" : "file", file });
+      const source = originalOf(originals, file.path);
+      if (trusted && message && file.imageRef) {
+        const src = messageImagePreviewUrl(message, file.imageRef.index, file.imageRef.asset);
+        result.push({ key, source, kind: "image", image: { src, name: file.name, downloadUrl: src, downloadName: file.name }, fallback: file });
+        continue;
+      }
+      result.push({ key, source, kind: trusted && isVideoAttachment(file.path) ? "video" : trusted && isAudioAttachment(file.path) ? "audio" : "file", file });
     }
     return result;
   }, [images, files, originals, message]);
@@ -521,7 +538,7 @@ export function AttachmentGallery({ images = [], files = [], originals, message,
           <div className="flex max-w-full flex-wrap gap-2">
             {thumbs.map((item) => item.kind === "image" && (
               <div key={item.key} className="min-w-0 max-w-full" title={item.image.name} {...reveal.targetProps(item.source)}>
-                <AttachmentThumbnail key={item.image.src} image={item.image} eager={eager} gallery={previews} onPreview={(items) => setSelected({ image: item.image, items })} className="h-24 w-auto max-w-48 rounded-2xl border-0" />
+                <AttachmentThumbnail key={item.image.src} image={item.image} fallback={item.fallback && <AttachedFileChip file={item.fallback} linked={item.fallback.linked} message={message} compact />} eager={eager} gallery={previews} onPreview={(items) => setSelected({ image: item.image, items })} className="h-24 w-auto max-w-48 rounded-2xl border-0" />
               </div>
             ))}
           </div>
@@ -556,7 +573,7 @@ export function AttachmentGallery({ images = [], files = [], originals, message,
         <div className={cn("max-w-full gap-2", compactPhotos ? cn("flex flex-wrap", alignEnd && "justify-end") : cn("grid", media.length === 1 ? "grid-cols-1" : "grid-cols-2"))}>
           {media.map((item) => item.kind === "image" ? (
             <div key={item.key} className="min-w-0 max-w-full" title={item.image.name} {...reveal.targetProps(item.source)}>
-              <AttachmentThumbnail key={item.image.src} image={item.image} eager={eager} gallery={previews} onPreview={(items) => setSelected({ image: item.image, items })} layout={photoStrip} className={cn("max-h-72 max-w-full border-0 bg-transparent", !photoStrip && "rounded-2xl")} />
+              <AttachmentThumbnail key={item.image.src} image={item.image} fallback={item.fallback && <AttachedFileChip file={item.fallback} linked={item.fallback.linked} message={message} compact />} eager={eager} gallery={previews} onPreview={(items) => setSelected({ image: item.image, items })} layout={photoStrip} className={cn("max-h-72 max-w-full border-0 bg-transparent", !photoStrip && "rounded-2xl")} />
             </div>
           ) : item.kind === "video" && message ? (
             <span key={`${message.threadId}:${message.messageId}:${item.key}`} className="contents" {...reveal.targetProps(item.source)}><VideoAttachment file={item.file} message={message} /></span>
