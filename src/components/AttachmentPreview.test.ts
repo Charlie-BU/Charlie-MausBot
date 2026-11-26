@@ -423,7 +423,15 @@ describe("full-screen image actions", () => {
       expect(offset()).toBe("");
       expect(active()).toBe("shot.png");
 
-      await wheel(30);
+      await wheel(55);
+      await wheel(-35);
+      expect(offset()).toBe("-20px");
+      await settle();
+      expect(active()).toBe("shot.png");
+
+      await wheel(4, 3);
+      await wheel(4, 2);
+      await wheel(22, 6);
       await wheel(30, 35);
       expect(offset()).toBe("-60px");
       expect(active()).toBe("shot.png");

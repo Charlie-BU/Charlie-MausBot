@@ -46,6 +46,11 @@ const WHEEL_IDLE_MS = 120;
 const SWIPE_SLOP = 10;
 const SWIPE_THRESHOLD = 48;
 
+function swipeAxis(dx: number, dy: number) {
+  if (Math.hypot(dx, dy) <= SWIPE_SLOP) return null;
+  return Math.abs(dx) > Math.abs(dy) ? "horizontal" : "vertical";
+}
+
 type SafariPinchEvent = globalThis.MouseEvent & { scale: number };
 
 function pinchBetween([first, second]: Point[]) {
@@ -109,10 +114,14 @@ export function usePreviewGestures(
       track.style.removeProperty("--preview-drag-y");
     }
   }, []);
-  const slide = useCallback((dx: number) => {
+  const moveHorizontal = useCallback((dx: number) => {
     const atEdge = dx > 0 ? index === 0 : index === count - 1;
     setDrag({ x: atEdge ? dx * 0.2 : dx, y: 0 });
   }, [count, index, setDrag]);
+  const endHorizontal = useCallback((dx: number, cancelled: boolean) => {
+    setDrag(null);
+    if (!cancelled && Math.abs(dx) >= SWIPE_THRESHOLD) navigate(dx < 0 ? 1 : -1);
+  }, [navigate, setDrag]);
   const updateZoom = useCallback((next: Zoom, animate = false) => {
     zoomRef.current = next;
     setZoom(next);
@@ -131,7 +140,8 @@ export function usePreviewGestures(
     if (!dialog) return;
     const view = dialog;
     let idle: ReturnType<typeof setTimeout> | undefined;
-    let swipe = { x: 0, horizontal: false };
+    let offset = { x: 0, y: 0 };
+    let dragging = false;
     let safariPinch: { zoom: Zoom; point: Point } | null = null;
 
     function zoomWith(base: Zoom, point: Point, factor: number) {
@@ -139,14 +149,13 @@ export function usePreviewGestures(
       updateZoom(scale === 1 ? FIT : zoomAt(view, base, point, point, scale));
     }
 
-    function finishSwipe(commit: boolean) {
+    function endWheel(cancelled: boolean) {
       clearTimeout(idle);
-      const { x, horizontal } = swipe;
-      swipe = { x: 0, horizontal: false };
-      if (!horizontal) return;
-      setDrag(null);
-      if (commit && Math.abs(x) >= SWIPE_THRESHOLD) navigate(x < 0 ? 1 : -1);
+      if (dragging) endHorizontal(offset.x, cancelled);
+      offset = { x: 0, y: 0 };
+      dragging = false;
     }
+    const cancelWheel = () => endWheel(true);
 
     function wheel(event: WheelEvent) {
       if (event.target instanceof Element && event.target.closest("[role=group]")) return;
@@ -155,7 +164,7 @@ export function usePreviewGestures(
       const x = event.deltaX * unit, y = event.deltaY * unit;
       if (ctrlKey) {
         event.preventDefault();
-        finishSwipe(false);
+        cancelWheel();
         clearTap();
         if (!safariPinch && points.current.size === 0) {
           zoomWith(zoomRef.current, { x: clientX, y: clientY }, Math.exp(-y / 100));
@@ -169,21 +178,20 @@ export function usePreviewGestures(
         return;
       }
       if (count < 2 || points.current.size > 0 || safariPinch) return;
-      if (!swipe.horizontal && Math.abs(x) <= Math.abs(y)) {
-        swipe.x = 0;
-        return;
+      const width = view.clientWidth || Infinity;
+      offset.x = Math.max(-width, Math.min(width, offset.x - x));
+      offset.y -= y;
+      if (!dragging) {
+        const axis = swipeAxis(offset.x, offset.y);
+        if (axis === "vertical") offset = { x: 0, y: 0 };
+        dragging = axis === "horizontal";
+        if (dragging) clearTap();
       }
-      event.preventDefault();
-      const limit = Math.max(view.clientWidth, SWIPE_THRESHOLD);
-      swipe.x = Math.max(-limit, Math.min(limit, swipe.x - x));
-      if (swipe.horizontal || Math.abs(swipe.x) > SWIPE_SLOP) {
-        swipe.horizontal = true;
-        clearTap();
-        slide(swipe.x);
-      }
+      if (dragging || Math.abs(x) > Math.abs(y)) event.preventDefault();
+      if (dragging) moveHorizontal(offset.x);
       clearTimeout(idle);
-      // Wheel events have no end signal. Settle once the stream, including momentum, stops.
-      idle = setTimeout(() => finishSwipe(true), WHEEL_IDLE_MS);
+      // Wheel events have no end signal, so the shared drag settles after the stream goes quiet.
+      idle = setTimeout(() => endWheel(false), WHEEL_IDLE_MS);
     }
 
     function gesture(event: Event) {
@@ -192,7 +200,7 @@ export function usePreviewGestures(
       if (points.current.size > 0) return;
       const { clientX: x, clientY: y, scale } = event as SafariPinchEvent;
       if (event.type === "gesturestart") {
-        finishSwipe(false);
+        cancelWheel();
         clearTap();
         safariPinch = { zoom: zoomRef.current, point: { x, y } };
       } else if (safariPinch) {
@@ -201,14 +209,16 @@ export function usePreviewGestures(
     }
 
     view.addEventListener("wheel", wheel, { passive: false });
+    view.addEventListener("pointerdown", cancelWheel);
     const gestures = ["gesturestart", "gesturechange", "gestureend"];
     for (const name of gestures) view.addEventListener(name, gesture, { passive: false });
     return () => {
-      finishSwipe(false);
+      cancelWheel();
       view.removeEventListener("wheel", wheel);
+      view.removeEventListener("pointerdown", cancelWheel);
       for (const name of gestures) view.removeEventListener(name, gesture);
     };
-  }, [dialogRef, count, navigate, clearTap, updateZoom, setDrag, slide]);
+  }, [dialogRef, count, clearTap, updateZoom, moveHorizontal, endHorizontal]);
 
   const finish = (event: PointerEvent<HTMLDivElement>, cancelled = false) => {
     if (!points.current.delete(event.pointerId) || points.current.size > 0) return;
@@ -222,11 +232,8 @@ export function usePreviewGestures(
       dismiss();
       return;
     }
-    setDrag(null);
-    if (!cancelled && initial && gesture === "horizontal") {
-      const dx = event.clientX - initial.x;
-      if (Math.abs(dx) >= SWIPE_THRESHOLD) navigate(dx < 0 ? 1 : -1);
-    }
+    if (initial && gesture === "horizontal") endHorizontal(event.clientX - initial.x, cancelled);
+    else setDrag(null);
   };
 
   const handlers = {
@@ -266,8 +273,9 @@ export function usePreviewGestures(
       const dx = point.x - initial.x;
       const dy = point.y - initial.y;
       if (!mode.current) {
-        if (Math.hypot(dx, dy) <= SWIPE_SLOP) return;
-        mode.current = origin.current.scale > 1 ? "pan" : Math.abs(dx) > Math.abs(dy) ? "horizontal" : "vertical";
+        const axis = swipeAxis(dx, dy);
+        if (!axis) return;
+        mode.current = origin.current.scale > 1 ? "pan" : axis;
         ignoreClick.current = true;
         clearTap();
         cancelPress();
@@ -276,7 +284,7 @@ export function usePreviewGestures(
       if (mode.current === "pan") {
         updateZoom(boundedZoom(event.currentTarget, { scale: origin.current.scale, x: origin.current.x + dx, y: origin.current.y + dy }));
       } else if (mode.current === "horizontal") {
-        slide(dx);
+        moveHorizontal(dx);
       } else {
         setDrag({ x: 0, y: Math.max(0, dy) });
       }
