@@ -42,7 +42,8 @@ type Point = { x: number; y: number };
 type Zoom = Point & { scale: number };
 const FIT: Zoom = { x: 0, y: 0, scale: 1 };
 const TAP_DELAY_MS = 280;
-const WHEEL_IDLE_MS = 160;
+const WHEEL_IDLE_MS = 120;
+const SWIPE_SLOP = 10;
 const SWIPE_THRESHOLD = 48;
 
 type SafariPinchEvent = globalThis.MouseEvent & { scale: number };
@@ -96,7 +97,7 @@ export function usePreviewGestures(
   const [zoom, setZoom] = useState(FIT);
   const [animateZoom, setAnimateZoom] = useState(false);
   const trackRef = useRef<HTMLDivElement>(null);
-  function setDrag(offset: Point | null) {
+  const setDrag = useCallback((offset: Point | null) => {
     const track = trackRef.current;
     if (!track) return;
     track.toggleAttribute("data-preview-dragging", offset !== null);
@@ -107,7 +108,11 @@ export function usePreviewGestures(
       track.style.removeProperty("--preview-drag-x");
       track.style.removeProperty("--preview-drag-y");
     }
-  }
+  }, []);
+  const slide = useCallback((dx: number) => {
+    const atEdge = dx > 0 ? index === 0 : index === count - 1;
+    setDrag({ x: atEdge ? dx * 0.2 : dx, y: 0 });
+  }, [count, index, setDrag]);
   const updateZoom = useCallback((next: Zoom, animate = false) => {
     zoomRef.current = next;
     setZoom(next);
@@ -126,12 +131,21 @@ export function usePreviewGestures(
     if (!dialog) return;
     const view = dialog;
     let idle: ReturnType<typeof setTimeout> | undefined;
-    let swipe = { x: 0, y: 0, switched: false };
+    let swipe = { x: 0, horizontal: false };
     let safariPinch: { zoom: Zoom; point: Point } | null = null;
 
     function zoomWith(base: Zoom, point: Point, factor: number) {
       const scale = Math.max(1, Math.min(4, base.scale * factor));
       updateZoom(scale === 1 ? FIT : zoomAt(view, base, point, point, scale));
+    }
+
+    function finishSwipe(commit: boolean) {
+      clearTimeout(idle);
+      const { x, horizontal } = swipe;
+      swipe = { x: 0, horizontal: false };
+      if (!horizontal) return;
+      setDrag(null);
+      if (commit && Math.abs(x) >= SWIPE_THRESHOLD) navigate(x < 0 ? 1 : -1);
     }
 
     function wheel(event: WheelEvent) {
@@ -141,6 +155,7 @@ export function usePreviewGestures(
       const x = event.deltaX * unit, y = event.deltaY * unit;
       if (ctrlKey) {
         event.preventDefault();
+        finishSwipe(false);
         clearTap();
         if (!safariPinch && points.current.size === 0) {
           zoomWith(zoomRef.current, { x: clientX, y: clientY }, Math.exp(-y / 100));
@@ -153,18 +168,22 @@ export function usePreviewGestures(
         updateZoom(boundedZoom(view, { ...current, x: current.x - x, y: current.y - y }));
         return;
       }
-      if (Math.abs(x) > Math.abs(y)) event.preventDefault();
-      clearTimeout(idle);
-      // Wheel events include momentum after the fingers lift, so only step once per uninterrupted gesture.
-      idle = setTimeout(() => { swipe = { x: 0, y: 0, switched: false }; }, WHEEL_IDLE_MS);
-      if (swipe.switched) return;
-      swipe.x += x;
-      swipe.y += y;
-      if (Math.abs(swipe.x) >= SWIPE_THRESHOLD && Math.abs(swipe.x) > Math.abs(swipe.y)) {
-        swipe.switched = true;
-        clearTap();
-        navigate(swipe.x > 0 ? 1 : -1);
+      if (count < 2 || points.current.size > 0 || safariPinch) return;
+      if (!swipe.horizontal && Math.abs(x) <= Math.abs(y)) {
+        swipe.x = 0;
+        return;
       }
+      event.preventDefault();
+      const limit = Math.max(view.clientWidth, SWIPE_THRESHOLD);
+      swipe.x = Math.max(-limit, Math.min(limit, swipe.x - x));
+      if (swipe.horizontal || Math.abs(swipe.x) > SWIPE_SLOP) {
+        swipe.horizontal = true;
+        clearTap();
+        slide(swipe.x);
+      }
+      clearTimeout(idle);
+      // Wheel events have no end signal. Settle once the stream, including momentum, stops.
+      idle = setTimeout(() => finishSwipe(true), WHEEL_IDLE_MS);
     }
 
     function gesture(event: Event) {
@@ -173,6 +192,7 @@ export function usePreviewGestures(
       if (points.current.size > 0) return;
       const { clientX: x, clientY: y, scale } = event as SafariPinchEvent;
       if (event.type === "gesturestart") {
+        finishSwipe(false);
         clearTap();
         safariPinch = { zoom: zoomRef.current, point: { x, y } };
       } else if (safariPinch) {
@@ -184,11 +204,11 @@ export function usePreviewGestures(
     const gestures = ["gesturestart", "gesturechange", "gestureend"];
     for (const name of gestures) view.addEventListener(name, gesture, { passive: false });
     return () => {
-      clearTimeout(idle);
+      finishSwipe(false);
       view.removeEventListener("wheel", wheel);
       for (const name of gestures) view.removeEventListener(name, gesture);
     };
-  }, [dialogRef, navigate, clearTap, updateZoom]);
+  }, [dialogRef, count, navigate, clearTap, updateZoom, setDrag, slide]);
 
   const finish = (event: PointerEvent<HTMLDivElement>, cancelled = false) => {
     if (!points.current.delete(event.pointerId) || points.current.size > 0) return;
@@ -246,7 +266,7 @@ export function usePreviewGestures(
       const dx = point.x - initial.x;
       const dy = point.y - initial.y;
       if (!mode.current) {
-        if (Math.hypot(dx, dy) <= 10) return;
+        if (Math.hypot(dx, dy) <= SWIPE_SLOP) return;
         mode.current = origin.current.scale > 1 ? "pan" : Math.abs(dx) > Math.abs(dy) ? "horizontal" : "vertical";
         ignoreClick.current = true;
         clearTap();
@@ -256,8 +276,7 @@ export function usePreviewGestures(
       if (mode.current === "pan") {
         updateZoom(boundedZoom(event.currentTarget, { scale: origin.current.scale, x: origin.current.x + dx, y: origin.current.y + dy }));
       } else if (mode.current === "horizontal") {
-        const atEdge = dx > 0 ? index === 0 : index === count - 1;
-        setDrag({ x: atEdge ? dx * 0.2 : dx, y: 0 });
+        slide(dx);
       } else {
         setDrag({ x: 0, y: Math.max(0, dy) });
       }
