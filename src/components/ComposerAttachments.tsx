@@ -1,6 +1,6 @@
 import { CachedChatImage } from "./CachedChatImage";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ClipboardPaste, FileText, LoaderCircle, MessageSquareText, X } from "lucide-react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { ChevronRight, ClipboardPaste, FileText, LoaderCircle, MessageSquareText, X } from "lucide-react";
 import { reducedMotion } from "@/lib/onboarding";
 import { cn } from "@/lib/cn";
 import {
@@ -14,6 +14,7 @@ import {
   type PasteAttachment,
 } from "@/lib/composer-attachments";
 import { AttachmentPreviewDialog, previewImage, type PreviewImage } from "./AttachmentPreview";
+import { useMenuMotion } from "./MenuMotion";
 import { CitationBadge } from "./CitationUI";
 import type { CitationAttachment } from "@/lib/citations";
 import { t } from "@/lib/i18n";
@@ -256,12 +257,28 @@ function attachmentFade(visible: boolean) {
 const attachmentActionClass = "flex size-7 shrink-0 items-center justify-center rounded-lg interaction:bg-raised/50 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus";
 
 export function SentPastedText({ pastes }: { pastes: readonly string[] }) {
-  return pastes.map((text, index) => (
-    <details key={index} className="mb-1 w-fit min-w-0 max-w-full rounded-xl border border-hairline/25 bg-card text-xs text-ink">
-      <summary className="min-h-[42px] cursor-pointer rounded-xl px-3 py-3">
-        {t("composer.chip.pasted")} · {pasteSummaryText({ lines: countLines(text), size: byteLength(text) })}
-      </summary>
-      <pre dir="auto" className="max-h-64 max-w-[min(65ch,65vw)] overflow-auto whitespace-pre-wrap break-all px-3 pb-3">{text}</pre>
-    </details>
-  ));
+  return pastes.map((text, index) => <SentPasteChip key={index} text={text} />);
+}
+
+function SentPasteChip({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  const bodyId = useId();
+  const motion = useMenuMotion(open);
+  return (
+    <div className="mb-1 ms-auto w-fit min-w-0 max-w-full overflow-hidden rounded-xl border border-hairline/25 bg-transparent text-[12px] text-ink">
+      <button type="button" aria-controls={bodyId} aria-expanded={open} onClick={() => setOpen(!open)}
+        className="flex min-h-10 w-full items-center gap-2 px-2.5 py-2 text-start transition-colors interaction:bg-raised/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60">
+        <ClipboardPaste size={14} className="shrink-0 text-ink-secondary" aria-hidden="true" />
+        <span className="min-w-0 flex-1">{t("composer.chip.pasted")} · {pasteSummaryText({ lines: countLines(text), size: byteLength(text) })}</span>
+        <ChevronRight size={14} aria-hidden="true" className={cn("shrink-0 text-ink-secondary motion-safe:transition-transform motion-safe:duration-200", open && "rotate-90")} />
+      </button>
+      <div id={bodyId} inert={!open} aria-hidden={!open || undefined}
+        className={cn("grid [contain:inline-size] motion-safe:transition-[grid-template-rows,opacity] motion-safe:duration-200 motion-safe:ease-in-out",
+          open ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0")}>
+        <div className="min-h-0 min-w-0 overflow-clip">
+          {motion.shown && <pre dir="auto" className="max-h-64 overflow-auto whitespace-pre-wrap break-all px-2.5 pb-2">{text}</pre>}
+        </div>
+      </div>
+    </div>
+  );
 }

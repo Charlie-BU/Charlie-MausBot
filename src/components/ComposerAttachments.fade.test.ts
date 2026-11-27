@@ -4,7 +4,7 @@ import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vitest";
 import type { Attachment } from "@/lib/composer-attachments";
-import { ComposerAttachments } from "./ComposerAttachments";
+import { ComposerAttachments, SentPastedText } from "./ComposerAttachments";
 
 it("keeps removed uploads visible for their fade without letting them receive input", () => {
   vi.useFakeTimers();
@@ -41,6 +41,32 @@ it("keeps removed uploads visible for their fade without letting them receive in
   } finally {
     flushSync(() => root.unmount());
     host.remove();
+    vi.useRealTimers();
+  }
+});
+
+it("keeps pasted source mounted through the collapse animation", () => {
+  vi.useFakeTimers();
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  try {
+    flushSync(() => root.render(createElement(SentPastedText, { pastes: ["<title>Report</title>"] })));
+    const button = host.querySelector("button")!;
+    const panel = host.querySelector("[id]")!;
+    expect(button.getAttribute("aria-expanded")).toBe("false");
+    expect(panel.textContent).toBe("");
+    flushSync(() => button.click());
+    expect(button.getAttribute("aria-expanded")).toBe("true");
+    expect(button.querySelector(".rotate-90")).not.toBeNull();
+    expect(panel.textContent).toBe("<title>Report</title>");
+    flushSync(() => button.click());
+    expect(button.getAttribute("aria-expanded")).toBe("false");
+    expect(panel.hasAttribute("inert")).toBe(true);
+    expect(panel.textContent).toBe("<title>Report</title>");
+    flushSync(() => vi.advanceTimersByTime(200));
+    expect(panel.textContent).toBe("");
+  } finally {
+    root.unmount();
     vi.useRealTimers();
   }
 });
