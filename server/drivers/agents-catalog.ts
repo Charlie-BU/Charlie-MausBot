@@ -1,4 +1,5 @@
 // The agents tool catalog and which tools a turn sees: definitions only, no environment, no calls.
+import { MESSAGE_PIN_TOOL } from "./agents-message-pin.ts";
 import { CREDENTIAL_TARGETS } from "../../shared/credential-request.ts";
 import { EMAIL_CREDENTIAL } from "../../shared/email.ts";
 import { OPTIONS_CARD_LIMITS, WATCHER_OPTIONS_CARD_BOT_ID } from "../../shared/options-card.ts";
@@ -252,6 +253,7 @@ const TOOL_DEFINITIONS = [
     },
   },
   RENAME_THREAD_TOOL_DEFINITION,
+  MESSAGE_PIN_TOOL,
   {
     name: "start_thread",
     description:

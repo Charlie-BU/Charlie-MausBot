@@ -5,12 +5,14 @@ import { useTeammates } from "@/state/team-people";
 import { groupChatWork, type TranscriptItem } from "@/lib/activity-runs";
 import { cn } from "@/lib/cn";
 import { useMenuMotion } from "../MenuMotion";
+import { SentPastedText } from "../ComposerAttachments";
 import { splitTranscriptAttachments } from "@/lib/composer-attachments";
 import { stateForBot } from "@/lib/mascot";
 import { JumpToLatestButton } from "../JumpToLatestButton";
 import { CopyButton, INTERACTIVE, MESSAGE_ROW, MessageActions, messageActionClass, ReplyAction } from "../MessageActions";
 import { ReactAction, ReactionChips } from "../Reactions";
-import { replyAndCopy, useBotMessageMenu } from "../message-menu";
+import { ChatPins, useChatPins } from "./ChatPins";
+import { type PinAction, pinItem, deleteMessageItem, replyAndCopy, useBotMessageMenu } from "../message-menu";
 import { ChatHeaderMenu } from "../ChatMoreMenu";
 import { ChatFindBar } from "../ChatFindBar";
 import { useChatFindRequests, useChatFindShortcut } from "@/lib/chat-find";
@@ -64,17 +66,19 @@ import { useSharedRun } from "../shared-run";
 import { SetupOffer } from "../SetupOffer";
 import { ReplyQuote } from "../ReplyQuote";
 import { useRotatingPhrase } from "../TurnPresence";
+import { useHiddenMessages } from "../HiddenMessages";
 
 const EMPTY_TRANSCRIPT: Message[] = [];
 
-function BotBubbleActions({ message, botId, threadId, text, canReact, onReply, raw, toggleRaw, onShowTrace }: {
-  message: Message; botId: string; threadId: string; text: string; canReact: boolean;
-  onReply?: () => void; raw: boolean; toggleRaw: () => void; onShowTrace?: () => void;
+function BotBubbleActions({ pin, message, botId, threadId, text, canReact, onReply, raw, toggleRaw, onShowTrace, onDelete }: {
+  pin?: PinAction; message: Message; botId: string; threadId: string; text: string; canReact: boolean;
+  onReply?: () => void; onDelete?: (id: string) => void; raw: boolean; toggleRaw: () => void; onShowTrace?: () => void;
 }) {
-  const menu = useBotMessageMenu({
+  const items = useBotMessageMenu({
     text, botId, threadId, messageId: message.id, tts: undefined, localVoice: false,
-    canSpeak: false, viewRaw: raw, onToggleRaw: toggleRaw,
+    pin, canSpeak: false, viewRaw: raw, onToggleRaw: toggleRaw,
   });
+  const menu = [...items, ...deleteMessageItem(message, onDelete)];
   return <MessageActions side="bot" className="v2-bubble-actions" forceOpen={raw} preferMenuAbove
     menu={onShowTrace ? [{ key: "view-trace", label: t("trace.view"), icon: <ClipboardList size={16} />, onSelect: onShowTrace }, ...menu] : menu} contextItems={onReply ? replyAndCopy(onReply, text) : []}>
     {onReply && <ReplyAction onReply={onReply} />}
@@ -103,8 +107,10 @@ function ChatV2Presence({ bot, stopping }: { bot: Bot; stopping: boolean }) {
   </div>;
 }
 
-export const Row = memo(function Row({ message: m, botId, botName, color, threadId, busy, hasMore, transcript, reply, failure, quoted, jumpTo, canLoadQuote, loadingQuote, digest, ownBubbleStyle, phoneLayout = false, mentionPeers }: {
+export const Row = memo(function Row({ message: m, botId, botName, color, threadId, busy, hasMore, transcript, reply, failure, quoted, jumpTo, canLoadQuote, loadingQuote, digest, ownBubbleStyle, phoneLayout = false, mentionPeers, onDelete, pinned, onPin }: {
+  pinned?: boolean; onPin?: (id: string, pinned: boolean) => void;
   mentionPeers?: readonly MentionPeer[];
+  onDelete?: (id: string) => void;
   message: Message; botId: string; botName: string; color: Bot["color"]; threadId: string;
   failure?: React.ReactNode;
   quoted?: Message;
@@ -145,17 +151,21 @@ export const Row = memo(function Row({ message: m, botId, botName, color, thread
   const peer = peerLine(m) ?? peerRequest(m, botId);
   const own = m.role === "user" && !peer;
   const messageText = peer?.body ?? (own ? m.text : stripLeakedSystemHarnessMessages(botLineText(m))) ?? "";
-  const legacy = own ? splitTranscriptAttachments(messageText) : null;
+  const legacy = own ? splitTranscriptAttachments(messageText, true, true, { collapsePastes: true }) : null;
   const text = legacy?.display ?? messageText;
   const attached = legacy && splitMessageAttachments(m.attachments);
   const images = legacy && attached && [...legacy.images, ...attached.images];
   const files = legacy && attached && [...legacy.files, ...attached.files];
   const voiceNotes = m.attachments?.filter(a => a.kind === "audio");
   const attachmentsOnly = !m.replyToId && !text.trim() &&
-    Boolean(images?.length || files?.length || m.attachments?.length);
+    Boolean(images?.length || files?.length || m.attachments?.length || legacy?.pastes?.length);
   const bare = attachmentsOnly || (!m.replyToId && !voiceNotes?.length && !raw && isImageOnlyMarkdown(text));
+  const pin = onPin && m.kind === "text" && !isLiveReply(m) && !m.id.startsWith("optimistic-") ? {
+    pinned: Boolean(pinned),
+    onToggle: () => onPin(m.id, !pinned),
+  } : undefined;
   const attachmentContext = { threadId, messageId: m.id };
-  if (!text && !m.attachments?.length && !images?.length && !files?.length) return null;
+  if (!text && !m.attachments?.length && !images?.length && !files?.length && !legacy?.pastes?.length) return null;
   return <article className="v2-message" data-own={own || undefined}>
     {peer && <b className="text-xs text-ink-secondary">{peer.name}</b>}
     <div className="v2-bubble-row group" {...{ [MESSAGE_ROW]: "" }}>
@@ -163,6 +173,7 @@ export const Row = memo(function Row({ message: m, botId, botName, color, thread
     {images && files && <AttachmentGallery images={images}
       files={[...files, ...collectMessageFiles(text, [...images.map(image => typeof image === "string" ? image : image.path), ...files.map(file => file.path)])]}
       originals={attached?.originals} message={attachmentContext} photoStrip="square" alignEnd />}
+    {legacy?.pastes && <SentPastedText pastes={legacy.pastes} />}
     {((text && !attachmentsOnly) || m.replyToId || !own || voiceNotes?.length) &&
     <div className={bare ? "v2-body v2-body-bare" : own ? "v2-body user-bubble-colored" : "v2-body"} dir="auto"
       style={own && !bare ? ownBubbleStyle : undefined} data-chat-bubble={attachmentsOnly ? undefined : ""} data-look={own && !bare ? "user-bubble" : undefined}
@@ -191,10 +202,13 @@ export const Row = memo(function Row({ message: m, botId, botName, color, thread
       </div>}
     </div>}
     </div>
-    {own ? reply && <MessageActions side="user" className="v2-bubble-actions" contextItems={replyAndCopy(() => reply(m), text)}><ReplyAction onReply={() => reply(m)} /></MessageActions>
+    {own ? <MessageActions side="user" className="v2-bubble-actions" menu={[...pinItem(pin), ...deleteMessageItem(m, onDelete)]}
+        contextItems={reply ? replyAndCopy(() => reply(m), text) : []}>
+        {reply && <ReplyAction onReply={() => reply(m)} />}
+      </MessageActions>
       : <div className="v2-action-stack">
         <div className="v2-action-layer" inert={showTrace}>
-          <BotBubbleActions message={m} botId={botId} threadId={threadId} text={text} canReact={Boolean(reply) && !peer}
+          <BotBubbleActions pin={pin} onDelete={onDelete} message={m} botId={botId} threadId={threadId} text={text} canReact={Boolean(reply) && !peer}
           onReply={reply && (() => reply(m))} raw={raw} onShowTrace={phoneLayout && digest ? () => setShowTrace(true) : undefined} toggleRaw={() => setRaw(value => !value)} />
         </div>
         {digest && <div ref={inlineTrace} className="v2-action-layer" inert={!showTrace}><DigestChip message={digest} inline /></div>}
@@ -275,7 +289,15 @@ export function ChatV2({ profile, phoneLayout = false }: { profile: Bot; phoneLa
   const messages = frozen?.messages ?? liveMessages;
   const unread = useUnreadDivider({ threadId: bot.threadId, messages: history, following: viewport.following, hasMore: historyPage.hasMore });
   const focusId = focused?.threadId === bot.threadId ? focused.messageId : undefined;
-  const items = useMemo(() => groupChatWork(messages, busy, history, focusId), [messages, busy, history, focusId]);
+  const { hiddenIds, requestDelete, dialog: deleteDialog } = useHiddenMessages(bot.threadId);
+  const userName = useStoreSelector(s => s.config?.profile?.name);
+  const { pins, update, pinnedIds } = useChatPins(bot, messageById, userName, writable);
+  const visiblePins = useMemo(() => pins.filter(pin => !hiddenIds.has(pin.id)), [pins, hiddenIds]);
+  const items = useMemo(() => groupChatWork(messages, busy, history, focusId).flatMap<TranscriptItem>(item => {
+    if (item.kind === "message") return hiddenIds.has(item.message.id) ? [] : [item];
+    const visible = item.messages.filter(message => !hiddenIds.has(message.id));
+    return visible.length ? [{ ...item, messages: visible }] : [];
+  }), [messages, hiddenIds, busy, history, focusId]);
   const digestByReply = useMemo(() => {
     const replies = new Map<string, string>();
     const digests = new Map<string, Message>();
@@ -357,7 +379,7 @@ export function ChatV2({ profile, phoneLayout = false }: { profile: Bot; phoneLa
       {message.id === unread.messageId && <NewMessagesDivider fading={unread.fading} />}
       {editing?.id === message.id ? <form onSubmit={e => { e.preventDefault(); const text = String(new FormData(e.currentTarget).get("text") ?? "").trim(); if (text) { dispatch({ type: "editMessage", botId: bot.id, threadId: bot.threadId, messageId: editing.id, text }); setEditing(null); } }}>
         <input autoFocus className="outline-none focus:bg-raised/50" name="text" defaultValue={editing.text} onKeyDown={e => { if (e.key === "Escape") setEditing(null); }} /></form> :
-        <Row mentionPeers={mentionPeers} phoneLayout={phoneLayout} ownBubbleStyle={ownBubbleStyle} digest={digestByReply.get(message.id)} message={message} botId={bot.id} botName={bot.name} color={bot.color} threadId={bot.threadId}
+        <Row pinned={pinnedIds.has(message.id)} onPin={writable ? update : undefined} onDelete={requestDelete} mentionPeers={mentionPeers} phoneLayout={phoneLayout} ownBubbleStyle={ownBubbleStyle} digest={digestByReply.get(message.id)} message={message} botId={bot.id} botName={bot.name} color={bot.color} threadId={bot.threadId}
           busy={busy} hasMore={message.kind === "call" && historyPage.hasMore}
           failure={message.tool && failedTurnCause(message.tool.name) !== null
             ? <FailedTurnRow tool={message.tool} engine={engine} botId={bot.id} threadId={bot.threadId}
@@ -370,6 +392,7 @@ export function ChatV2({ profile, phoneLayout = false }: { profile: Bot; phoneLa
     </div>;
   };
   return <main data-chat-v2 data-stop-presentation={stopPresentation} className="v2-page">
+    {deleteDialog}
     <CallOverlay bot={bot} transcript={history} />
     <div className="v2-floating">
       <div className="v2-model"><ModelPicker bot={bot} threadId={bot.threadId} iconOnly={phoneLayout} /></div>
@@ -387,10 +410,11 @@ export function ChatV2({ profile, phoneLayout = false }: { profile: Bot; phoneLa
         <ChatHeaderMenu bot={bot} history={history} openOnHover={false} />
       </div>
     </div>
-    {(findOpen || error) && <div className="v2-banners">
+    <div className="v2-banners">
+      <ChatPins key={bot.threadId} pins={visiblePins} remove={writable ? id => update(id, false) : undefined} jump={id => historyPage.jumpTo(id, messageById.has(id))} />
       {findOpen && <ChatFindBar threadId={bot.threadId} inForkPanel={false} onClose={() => setFindOpen(false)} />}
       <ChatErrorBanner message={error} onDismiss={() => dispatch({ type: "error", message: null })} />
-    </div>}
+    </div>
     <div data-bot-list-scroll="" className="v2-scroll" ref={viewport.scrollRef} {...viewport.scrollHandlers}>
       <div ref={viewport.transcriptRef} className="v2-paper chat-column" role="log" aria-label={t("chat.conversationWith", { name: bot.name })}>
         {viewport.hasEarlier && <div ref={viewport.topSentinelRef} aria-hidden="true" className="h-px w-full" />}
@@ -421,7 +445,7 @@ export function ChatV2({ profile, phoneLayout = false }: { profile: Bot; phoneLa
       {writable ? <Composer bot={profile} chatHistory={historyPage.history} smoothHeight onSendFrom={(sendId, input) => {
         if (!reducedMotion()) sendOrigin.current = { sendId, bounds: input.getBoundingClientRect() };
       }} locked={Boolean(bot.switchingTo)} replyTo={draft.replyTo} onClearReply={draft.clearReply} onRestoreReply={draft.restoreReply} onConsumeReply={draft.consumeReply}
-        onEditLast={lastTyped && !bot.busy && canEditTypedMessage(lastTyped) ? () => setEditing(lastTyped) : undefined} /> :
+        onEditLast={lastTyped && !hiddenIds.has(lastTyped.id) && !bot.busy && canEditTypedMessage(lastTyped) ? () => setEditing(lastTyped) : undefined} /> :
         <NewConversationInstead bot={bot} onNew={() => dispatch({ type: "newTask", botId: bot.id })} />}
     </footer>
   </main>;

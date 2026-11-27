@@ -157,6 +157,20 @@ export function createThreadRoutes(deps: ThreadRouteDeps): RouteHandler {
       }
       const limit = pageSize(url.searchParams.get("limit"));
       if (limit === null) return json(res, 400, { error: "limit must be a non-negative whole number" });
+      if (url.searchParams.get("view") === "pins") {
+        const owner = store.botByThread(threadId);
+        const ids = owner && store.taskByThread(owner.id, threadId)?.pinnedMessageIds;
+        if (!ids?.length) return json(res, 200, { messages: [] });
+        const { messages: path, positions } = store.activePathIndex(threadId);
+        const messages = ids.flatMap(id => {
+          const position = positions.get(id);
+          const message = position === undefined ? undefined : path[position];
+          if (!message || message.kind !== "text") return [];
+          const { id: messageId, role, kind, text, from, peerAsk, roomRequest, attachments, at } = message;
+          return [{ id: messageId, role, kind, text, from, peerAsk, roomRequest, attachments, at }];
+        });
+        return json(res, 200, { messages });
+      }
       const before = url.searchParams.get("before");
       const around = url.searchParams.get("around");
       if (before && around) return json(res, 400, { error: "before and around cannot be combined" });
@@ -243,14 +257,22 @@ export function createThreadRoutes(deps: ThreadRouteDeps): RouteHandler {
       if (streamsMessageImage && (!rawReference || !/^\d+$/.test(rawReference))) {
         return json(res, 400, { error: "ref must identify a rendered image" });
       }
+      const previewKind = streamsMessageImage ? url.searchParams.get("asset") : null;
+      if (previewKind !== null && previewKind !== "attachment" && previewKind !== "link") {
+        return json(res, 400, { error: "invalid image reference type" });
+      }
+      const previewAttachment = previewKind === "attachment" ? message.attachments?.[Number(rawReference)] : undefined;
       const href = mediaGrant
         ? mediaGrant.path
         : method === "POST"
           ? (typeof body.path === "string" ? body.path : "")
-          : messageImageTargetAt(messageText, Number(rawReference));
+          : previewKind === "attachment"
+            ? previewAttachment?.path
+            : messageImageTargetAt(messageText, Number(rawReference), previewKind === "link");
       if (!href) return json(res, 400, { error: "path is required" });
 
       if (streamsMessageImage && /^(?:https?:|\/\/)/i.test(href)) {
+        if (previewKind !== null) return json(res, 403, { error: "expected a local image file" });
         const address = href.startsWith("//") ? "https:" + href : href;
         const remote = await fetchPublicPage(address, { maxBytes: IMAGE_MAX_BYTES + 1, timeoutMs: 15_000 });
         if (!remote.ok) return json(res, 502, { error: "Remote image unavailable" });
@@ -268,8 +290,8 @@ export function createThreadRoutes(deps: ThreadRouteDeps): RouteHandler {
         ? message.attachments?.find((attachment) => attachment.path === href)
         : undefined;
       if (message.role === "user") {
-        downloadName = messageAttachmentName(messageText, href) ?? undefined;
-        if (!downloadName) {
+        downloadName = previewAttachment?.kind === "file" ? previewAttachment.name : messageAttachmentName(messageText, href) ?? undefined;
+        if (!downloadName && !previewAttachment) {
           return json(res, 403, { error: "that message does not share this file" });
         }
         roots = [ATTACHMENTS_DIR];
@@ -369,6 +391,7 @@ export function createThreadRoutes(deps: ThreadRouteDeps): RouteHandler {
           ? {
               "cross-origin-resource-policy": "same-origin",
               "referrer-policy": "no-referrer",
+              ...(streamsMessageImage && { "content-security-policy": "sandbox; default-src 'none'" }),
             }
           : {}),
       });

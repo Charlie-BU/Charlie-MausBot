@@ -164,11 +164,11 @@ export interface WireTask extends InboxTask {
   autoApprove?: boolean;
   alwaysAllow?: string[];
   unread?: boolean;
-  /** The newest message on screen the last time the person read this
-   * conversation. The New divider goes after it. */
+  /** The New divider follows the newest message visible when the conversation was last read. */
   lastReadMessageId?: string;
   /** true after an edit/branch-switch rewound the visible conversation. */
   rewound?: boolean;
+  pinnedMessageIds?: string[];
   pinnedMessageId?: string;
   /** Runtime-only state, reset on load and never persisted. */
   activity?: BotActivity;

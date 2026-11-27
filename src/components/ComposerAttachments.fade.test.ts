@@ -4,7 +4,7 @@ import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vitest";
 import type { Attachment } from "@/lib/composer-attachments";
-import { ComposerAttachments } from "./ComposerAttachments";
+import { ComposerAttachments, SentPastedText } from "./ComposerAttachments";
 
 it("keeps removed uploads visible for their fade without letting them receive input", () => {
   vi.useFakeTimers();
@@ -42,5 +42,25 @@ it("keeps removed uploads visible for their fade without letting them receive in
     flushSync(() => root.unmount());
     host.remove();
     vi.useRealTimers();
+  }
+});
+
+it("keeps the paste panel laid out while toggling access to its contents", () => {
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  try {
+    flushSync(() => root.render(createElement(SentPastedText, { pastes: ["<title>Report</title>"] })));
+    const button = host.querySelector("button")!;
+    const panel = host.querySelector("[id]")!;
+    const source = panel.querySelector("pre")!;
+    expect(source.textContent).toBe("<title>Report</title>");
+    for (const open of [false, true, false]) {
+      expect(button.getAttribute("aria-expanded")).toBe(String(open));
+      expect(panel.hasAttribute("inert")).toBe(!open);
+      expect(panel.querySelector("pre")).toBe(source);
+      flushSync(() => button.click());
+    }
+  } finally {
+    root.unmount();
   }
 });

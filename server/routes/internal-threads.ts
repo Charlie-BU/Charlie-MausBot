@@ -1,6 +1,7 @@
+import { setMessagePin } from "../message-pins.ts";
 import { chiefTidies } from "../chief-of-staff.ts";
 import type { Coordinator, HandoffView } from "../coordinator.ts";
-import { reachablePeers } from "../peer-roster.ts";
+import { canReach, reachablePeers } from "../peer-roster.ts";
 import { threadTitleFrom, type BotRecord, type Store, type TaskRecord } from "../store.ts";
 import { PASS, type RouteHandler } from "./table.ts";
 import { conversationLanguage, serverLine } from "../server-lines.ts";
@@ -20,7 +21,7 @@ interface ThreadRow {
 
 /** Only dispatch inside the internal capability gate: `from` and `fromThreadId` come from the caller's capability. */
 export function createInternalThreadRoutes(deps: {
-  store: Pick<Store, "bot" | "bots" | "tasks" | "taskByThread" | "appendMessage" | "patchTask" | "setTaskClosedBy" | "renameTask">;
+  store: Pick<Store, "bot" | "bots" | "tasks" | "botByThread" | "messagesFor" | "taskByThread" | "appendMessage" | "patchTask" | "setTaskClosedBy" | "renameTask">;
   coordinator: Pick<Coordinator, "awaitingAnswer" | "parkedDirect" | "activeDirect" | "active">;
   from: BotRecord;
   fromThreadId: string;
@@ -36,6 +37,17 @@ export function createInternalThreadRoutes(deps: {
 }): RouteHandler {
   const { store, coordinator, from, fromThreadId } = deps;
   return async ({ res, url, path, method, json }) => {
+    if (method === "POST" && path === "/api/internal/message-pin") {
+      const body = await deps.readBody() as { targetThreadId?: unknown; messageId?: unknown; pinned?: unknown } | null;
+      const target = body?.targetThreadId ?? fromThreadId;
+      if (!deps.ownsThread(from.id, fromThreadId) || typeof target !== "string" || !deps.shown(target))
+        return json(res, 403, { error: "Conversation unavailable" });
+      const owner = store.botByThread(target);
+      if (!owner || (owner.id !== from.id && !(from.chiefOfStaff && canReach(from, owner))))
+        return json(res, 403, { error: "Conversation unavailable" });
+      const result = setMessagePin(store, owner.id, target, body?.messageId, body?.pinned);
+      return json(res, result.error ? 400 : 200, result);
+    }
     // list_threads: the caller's own threads plus, on reachable peers, only threads it opened; a peer's other threads are its own business.
     if (method === "GET" && path === "/api/internal/threads") {
       if (!deps.ownsThread(from.id, fromThreadId)) {

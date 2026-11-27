@@ -1,5 +1,6 @@
 // Runs one agents tool: check arguments, call the harness, render the model's text. Stateless;
 // per-turn limits are the harness's, since one proxy can serve many turns of a warm engine.
+import { callMessagePin, MESSAGE_PIN_TOOL } from "./agents-message-pin.ts";
 import { agentsCallMember, resolveAgentsCall } from "../../shared/agents-tool-names.ts";
 import { CREDENTIAL_TARGETS, isCredentialTargetId } from "../../shared/credential-request.ts";
 import { rankSkills } from "../../shared/skill-fit.ts";
@@ -406,6 +407,7 @@ export async function callTool(called: string, input: Json, context: ToolCallCon
     };
   }
   if (name === THREAD_POST_TOOL) return callThreadPostTool(args, context);
+  if (name === MESSAGE_PIN_TOOL.name) return callMessagePin(args, context);
   if (name === RENAME_THREAD_TOOL) return callRenameThreadTool(args, context);
   if (name === "select_computer") {
     if (args.surface !== undefined && (typeof args.surface !== "string" || !["auto", "cloud", "vm", "local", "browser"].includes(args.surface))) {

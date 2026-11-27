@@ -1451,7 +1451,6 @@ function askForScreen(connection) {
   screenAskedAt = Date.now();
   void requestComputerUse().catch(error => slog(`computer control: ${error?.message ?? error}`));
 }
-/** A Cloud of the person's own whose session in this window ended: a new one from the Admin's code for that very Cloud. */
 function reconnectCloud(origin) {
   const other = otherOwnClouds(cloudAccount?.state().clouds).find(cloud => cloud.origin === origin);
   return signInCloudSession({ origin, mine: other ? origin : myCloud(), pair: () => ensureCloudAccount().pairHome(other?.id ?? null), fetch: (...args) => session.defaultSession.fetch(...args) });

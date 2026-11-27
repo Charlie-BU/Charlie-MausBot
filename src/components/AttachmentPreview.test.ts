@@ -400,6 +400,44 @@ describe("full-screen image actions", () => {
     }
   });
 
+  it("leaves the current picture still during unmodified horizontal trackpad scrolling", async () => {
+    vi.useFakeTimers();
+    const { dialog, close } = await openPreview([image, { ...image, src: "/next.png", name: "next.png" }]);
+    const track = dialog.querySelector<HTMLElement>("[data-preview-track]")!;
+    try {
+      await act(() => dialog.dispatchEvent(new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaX: 100 })));
+      expect(track.style.getPropertyValue("--preview-drag-x")).toBe("");
+      await act(() => { vi.advanceTimersByTime(200); });
+      expect(dialog.querySelector<HTMLImageElement>("[data-preview-active-image]")?.alt).toBe("shot.png");
+    } finally {
+      await close();
+      vi.useRealTimers();
+    }
+  });
+
+  it.each(["wheel", "Safari"])("zooms in and out with desktop %s pinch events", async engine => {
+    const { dialog, close } = await openPreview();
+    const active = dialog.querySelector<HTMLImageElement>("[data-preview-active-image]")!;
+    async function pinch(type: string, scale: number) {
+      const event = engine === "wheel"
+        ? new WheelEvent("wheel", { bubbles: true, cancelable: true, ctrlKey: true, deltaY: -100 * Math.log(scale) })
+        : Object.assign(new MouseEvent(type, { bubbles: true, cancelable: true }), { scale });
+      if (engine === "wheel") Object.defineProperty(event, "ctrlKey", { value: true });
+      await act(() => dialog.dispatchEvent(event));
+      expect(event.defaultPrevented).toBe(true);
+    }
+    try {
+      if (engine === "Safari") await pinch("gesturestart", 1);
+      await pinch("gesturechange", 2);
+      expect(active.style.transform).toContain("scale(2)");
+      await pinch("gesturechange", engine === "wheel" ? 0.5 : 1);
+      expect(active.style.transform).toContain("scale(1)");
+      if (engine === "Safari") await pinch("gestureend", 1);
+    } finally {
+      await close();
+    }
+  });
+
   it("has no navigation icons, toggles zoom on double click and dismisses on a single image click", async () => {
     vi.useFakeTimers();
     const { dialog, onClose, close } = await openPreview([image, { ...image, src: "/next.png" }]);
@@ -478,6 +516,34 @@ describe("full-screen image actions", () => {
       expect(preview.button()?.title).toBe("Image copied");
     } finally {
       await preview.close();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it.each(["darwin", "win32"] as const)("copies and downloads without opening the menu on %s", async platform => {
+    const write = vi.fn(async () => {});
+    vi.stubGlobal("ogb", { platform });
+    vi.stubGlobal("ClipboardItem", class { constructor(readonly items: Record<string, Promise<Blob>>) {} });
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(new Blob(["png"], { type: "image/png" }))));
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { write } });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
+      expect(this.getAttribute("href")).toBe(image.downloadUrl);
+      expect(this.download).toBe("shot.png");
+    });
+    const preview = await openPreview();
+    try {
+      const modifier = platform === "darwin" ? { metaKey: true } : { ctrlKey: true };
+      for (const key of ["c", "s"]) {
+        const event = new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key, ...modifier });
+        await act(async () => { preview.dialog.dispatchEvent(event); });
+        expect(event.defaultPrevented).toBe(true);
+      }
+      expect(write).toHaveBeenCalledOnce();
+      expect(click).toHaveBeenCalledOnce();
+      expect(preview.button()).toBeNull();
+    } finally {
+      await preview.close();
+      click.mockRestore();
       vi.unstubAllGlobals();
     }
   });

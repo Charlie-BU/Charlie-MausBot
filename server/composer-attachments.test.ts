@@ -3,10 +3,10 @@ import { describe, expect, it } from "vitest";
 import {
   PASTE_CHARS,
   PASTE_LINES,
-  attachmentsFromDroppedFiles,
   byteLength,
   composeMessage,
   fileAttachment,
+  intakeFiles,
   isAttachment,
   isLongPaste,
   pasteAttachment,
@@ -45,40 +45,25 @@ describe("composer paste attachments", () => {
     );
   });
 
-  it("preserves drop order and falls back to small pathless text", async () => {
+  it("preserves drop order and keeps pathless text files as named uploads", async () => {
     const dropped = [
-      {
-        name: "on-disk.md",
-        size: 12,
-        type: "text/markdown",
-        path: "/tmp/on-disk.md",
-        text: async () => "not read",
-      },
-      {
-        name: "browser.txt",
-        size: 7,
-        type: "text/plain",
-        path: "",
-        text: async () => "browser",
-      },
-      {
-        name: "image.png",
-        size: 10,
-        type: "image/png",
-        path: "",
-        text: async () => "not text",
-      },
+      { name: "on-disk.md", size: 12, type: "text/markdown", path: "/tmp/on-disk.md" },
+      { name: "browser.html", size: 7, type: "text/html", path: "" },
+      { name: "missing.bin", size: 10, type: "application/octet-stream", path: "" },
     ];
-
-    const result = await attachmentsFromDroppedFiles(dropped, (file) => file.path);
-    expect(result.attachments.map((attachment) => attachment.kind)).toEqual(["file", "paste"]);
-    expect(result.attachments[0]).toMatchObject({
-      kind: "file",
-      name: "on-disk.md",
-      path: "/tmp/on-disk.md",
+    const result = await intakeFiles(dropped, {
+      allowImages: false,
+      getPath: (file) => file.path,
+      uploadImage: async () => null,
+      uploadFile: async (file, anyType) => anyType && file.name === "browser.html"
+        ? fileAttachment(file.name, "/private/file.bin", file.size)
+        : null,
     });
-    expect(result.attachments[1]).toMatchObject({ kind: "paste", text: "browser" });
-    expect(result.rejectedNames).toEqual(["image.png"]);
+    expect(result.attachments).toEqual([
+      expect.objectContaining({ kind: "file", name: "on-disk.md", path: "/tmp/on-disk.md" }),
+      expect.objectContaining({ kind: "file", name: "browser.html", path: "/private/file.bin" }),
+    ]);
+    expect(result.problems).toEqual([{ kind: "unsupported", names: ["missing.bin"] }]);
   });
 
   it("rejects malformed persisted attachments", () => {

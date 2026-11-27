@@ -414,6 +414,54 @@ it("lets the opener find and close the completed task", () => fixture(async f =>
   expect((await f.messages(child.threadId)).some((message: any) => message.text === "Implemented and reviewer confirmed checks")).toBe(true);
 }), 45_000);
 
+it("shares message pins with the chat and limits peer pin changes to the chief", () => fixture(async f => {
+  const thread = f.lead.activeTaskId;
+  const target = (await f.messages(thread)).find((message: any) => message.kind === "text").id;
+  const path = `/api/bots/${f.lead.id}/tasks/${thread}`;
+  const pins = async () => (await f.api(`/api/threads/${thread}/messages?view=pins`)).messages.map((m: any) => m.id);
+  async function change(actor: typeof f.chief, pinned: boolean) {
+    f.plan[actor.id] = { steps: [{ tool: "set_message_pin", arguments: { thread_id: thread, message_id: target, pinned } }], reply: "Finished" };
+    f.save();
+    await f.cli("send", "--bot", actor.id, "--task", actor.activeTaskId, "--text", "Change the pin");
+    await f.cli("wait", "--bot", actor.id, "--task", actor.activeTaskId, "--timeout", "30");
+    return f.evidence().at(-1).evidence.find((entry: any) => entry.step?.tool === "set_message_pin").response.result;
+  }
+  expect((await change(f.lead, true)).isError).toBeFalsy();
+  expect(await pins()).toEqual([target]);
+  expect((await change(f.specialist, false)).isError).toBe(true);
+  expect(await pins()).toEqual([target]);
+  expect((await change(f.chief, false)).isError).toBeFalsy();
+  expect(await pins()).toEqual([]);
+  await f.api(path, { messagePin: { id: target, pinned: true } }, "PATCH");
+  expect((await change(f.chief, true)).isError).toBeFalsy();
+  expect(await pins()).toEqual([target]);
+}), 60_000);
+
+it("shows only pins on the active message branch", () => fixture(async f => {
+  const bot = f.lead;
+  const threadId = bot.activeTaskId;
+  const first = (await f.messages(threadId)).find((message: any) => message.kind === "text");
+  f.plan[bot.id] = { reply: "First branch" };
+  f.save();
+  await f.cli("send", "--bot", bot.id, "--task", threadId, "--text", "Continue this conversation");
+  await f.cli("wait", "--bot", bot.id, "--task", threadId, "--timeout", "30");
+  const original = await f.messages(threadId);
+  const request = original.find((message: any) => message.text === "Continue this conversation");
+  const reply = original.find((message: any) => message.text === "First branch");
+  for (const id of [first.id, reply.id]) {
+    await f.api(`/api/bots/${bot.id}/tasks/${threadId}`, { messagePin: { id, pinned: true } }, "PATCH");
+  }
+  const pins = async () => (await f.api(`/api/threads/${threadId}/messages?view=pins`)).messages.map((message: any) => message.id);
+  expect(await pins()).toEqual([reply.id, first.id]);
+  f.plan[bot.id] = { reply: "Edited branch" };
+  f.save();
+  await f.api(`/api/bots/${bot.id}/messages/${request.id}/edit`, { threadId, text: "Continue on a new branch" });
+  await f.cli("wait", "--bot", bot.id, "--task", threadId, "--timeout", "30");
+  expect(await pins()).toEqual([first.id]);
+  await f.api(`/api/bots/${bot.id}/active-branch`, { threadId, messageId: reply.id });
+  expect(await pins()).toEqual([reply.id, first.id]);
+}), 45_000);
+
 it("lets a bot rename only the thread it is working in", () => fixture(async f => {
   f.plan[f.chief.id] = {
     steps: [{ tool: "rename_thread", arguments: { title: "Acme: carousel design" } }],

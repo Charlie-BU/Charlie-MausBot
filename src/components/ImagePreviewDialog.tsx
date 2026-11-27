@@ -5,6 +5,10 @@ import { Download, ImageOff, LoaderCircle, RotateCcw } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { canonicalDownloadFilename } from "@/lib/download-filename";
 import { t } from "@/lib/i18n";
+import { canCopyImage, copyImage } from "@/lib/copy-image";
+import { useCopyFeedback } from "@/lib/copy-text";
+import { isMacPlatform } from "@/lib/keyboard-shortcuts";
+import { imeComposing } from "@/lib/send-key";
 import type { PreviewImage } from "./AttachmentPreview";
 import { previewKeyAction, usePreviewGestures, nextImageIndex } from "./AttachmentPreviewNavigation";
 import { CopyImageButton } from "./CopyImageButton";
@@ -25,6 +29,12 @@ export function AttachmentPreviewDialog({
   const items = images?.length ? images : [image];
   const [index, setIndex] = useState(() => Math.min(Math.max(initialIndex, 0), items.length - 1));
   const current = items[index] ?? image;
+  const mac = isMacPlatform();
+  const copySupported = canCopyImage();
+  const { state: copyState, copy } = useCopyFeedback(current.src, copyImage);
+  const downloadHref = current.downloadUrl ?? current.src;
+  const downloadName = current.downloadName ?? canonicalDownloadFilename({ fallback: current.name, source: current.src });
+  const downloadRef = useRef<HTMLAnchorElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const motion = useDismissMotion(onClose);
   const [loadedSources, setLoadedSources] = useState<Set<string>>(() => new Set());
@@ -51,7 +61,7 @@ export function AttachmentPreviewDialog({
     setMenu(null);
     setIndex((value) => nextImageIndex(value, step, items.length));
   }, [items.length, cancelPress]);
-  const { trackRef, zoom, animateZoom, handlers, tapSurface, clearTap } = usePreviewGestures(index, items.length, navigate, motion.dismiss, cancelPress);
+  const { trackRef, zoom, animateZoom, handlers, tapSurface, clearTap } = usePreviewGestures(dialogRef, index, items.length, navigate, motion.dismiss, cancelPress);
 
   useEffect(() => {
     if (!motion.open) return;
@@ -106,6 +116,29 @@ export function AttachmentPreviewDialog({
     };
   }, [items.length, navigate, motion.open, motion.dismiss]);
 
+  useEffect(() => {
+    if (!motion.open) return;
+    const shortcut = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || imeComposing(event) || event.altKey || event.shiftKey ||
+        (mac ? !event.metaKey || event.ctrlKey : !event.ctrlKey || event.metaKey)) return;
+      const key = event.key.toLowerCase();
+      if (key !== "c" && key !== "s") return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.repeat) return;
+      if (key === "c") {
+        if (copySupported) copy();
+      } else {
+        const link = downloadRef.current ?? Object.assign(document.createElement("a"), {
+          href: downloadHref, download: downloadName, target: "_blank", rel: "noreferrer",
+        });
+        link.click();
+      }
+    };
+    window.addEventListener("keydown", shortcut, true);
+    return () => window.removeEventListener("keydown", shortcut, true);
+  }, [motion.open, mac, copySupported, copy, downloadHref, downloadName]);
+
   if (!motion.shown) return null;
 
   const loaded = loadedSources.has(current.src);
@@ -133,7 +166,7 @@ export function AttachmentPreviewDialog({
       aria-modal="true"
       aria-label={t("attach.previewAria", { name: current.name })}
       tabIndex={-1}
-      className="fixed inset-0 z-[70] flex touch-none items-center justify-center overflow-hidden bg-black outline-none"
+      className="fixed inset-0 z-[70] flex touch-none items-center justify-center overflow-hidden overscroll-none bg-black outline-none"
       {...handlers}
       onClick={event => {
         if (menu && !menuRef.current?.contains(event.target as Node)) {
@@ -219,13 +252,14 @@ export function AttachmentPreviewDialog({
           className={cn("fixed z-20 w-52 max-w-[calc(100vw-16px)]", MENU_SHEET)}
           style={{ left: Math.max(8, Math.min(menuMotion.value.x, window.innerWidth - 216)), top: Math.max(8, Math.min(menuMotion.value.y, window.innerHeight - 112)) }}
           onContextMenu={event => { event.preventDefault(); event.stopPropagation(); }}>
-          <CopyImageButton key={current.src} src={current.src} name={current.name} />
-          <a href={current.downloadUrl ?? current.src}
-            download={current.downloadName ?? canonicalDownloadFilename({ fallback: current.name, source: current.src })}
+          <CopyImageButton name={current.name} state={copyState} copy={copy} supported={copySupported} mac={mac} />
+          <a ref={downloadRef} href={downloadHref} download={downloadName}
             target="_blank" rel="noreferrer"
+            aria-keyshortcuts={mac ? "Meta+S" : "Control+S"}
             aria-label={t("attach.downloadAria", { name: current.name })}
             className={cn(MENU_ITEM, "text-ink interaction:bg-raised/50")}>
             <Download size={16} /> {t("attach.download")}
+            <kbd aria-hidden="true" className="ms-auto text-ink-tertiary">{mac ? "⌘S" : "Ctrl+S"}</kbd>
           </a>
         </div>
       )}

@@ -13,7 +13,7 @@ const items: MessageMenuItem[] = [
 describe("a chat message's menu while a turn runs", () => {
   let root: Root, host: HTMLElement;
   const draw = (busy: boolean) => flushSync(() => root.render(createElement(ChatBusyContext, { value: busy }, createElement(MessageActions, { side: "user", menu: items }))));
-  const offered = () => [...host.querySelectorAll("[role=menuitem]")].map((item) => item.textContent);
+  const offered = () => [...document.querySelectorAll("[role=menuitem]")].map((item) => item.textContent);
   beforeEach(() => {
     host = document.createElement("div");
     document.body.append(host);

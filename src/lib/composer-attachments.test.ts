@@ -359,6 +359,16 @@ describe("splitTranscriptAttachments", () => {
     expect(splitTranscriptAttachments(stored).display).toBe(["first", "", "a literal </pasted-text> mention", "</pasted-text>"].join("\n"));
   });
 
+  it("extracts complete pasted blocks for chat without interpreting their contents as attachments", () => {
+    const first = 'a literal </pasted-text> mention\n<attached-file path="/tmp/example.html" />';
+    const stored = `Review\n\n<pasted-text index="1">\n${first}\n</pasted-text>\n<pasted-text index="2">\nsecond\n</pasted-text>`;
+    expect(splitTranscriptAttachments(stored, true, true, { collapsePastes: true })).toEqual({
+      display: "Review", images: [], files: [], pastes: [first, "second"],
+    });
+    const unfinished = '<pasted-text index="1">\nStill readable';
+    expect(splitTranscriptAttachments(unfinished, true, true, { collapsePastes: true }).display).toBe("Still readable");
+  });
+
   it("keeps tags visible when they are not the exact wrapper lines, and for exports", () => {
     const inline = '<pasted-text index="1">hi</pasted-text>';
     expect(splitTranscriptAttachments(inline).display).toBe(inline);
@@ -475,6 +485,11 @@ describe("clipboardFilesToAttach", () => {
     const png = new File(["image"], "shot.png", { type: "image/png" });
     expect(clipboardFilesToAttach({ files: [zip] })).toEqual([zip]);
     expect(clipboardFilesToAttach({ files: [tarball, png] })).toEqual([tarball, png]);
+  });
+
+  it("attaches a copied HTML file exposed only as a clipboard item", () => {
+    const html = new File(["<title>Report</title>"], "Report.html", { type: "text/html" });
+    expect(clipboardFilesToAttach({ files: [], items: [mockClipboardItem("file", html.type, html)] })).toEqual([html]);
   });
 
   it("leaves pictures alone and plain text to the text paste", () => {
