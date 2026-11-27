@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { initialState, StoreProvider, useStore, type Action, type Bot, type Message } from "./store";
 import { useChatHistory } from "./use-chat-history";
+import { useChatPins } from "../components/chat-v2/ChatPins";
 
 const profile: Bot = {
   id: "B", name: "B", threadId: "B-old", title: "", description: "", color: "green", unread: false, notifications: true,
@@ -25,7 +26,8 @@ let dispatch: Dispatch<Action>;
 let requests: ReturnType<typeof vi.fn<typeof fetch>>;
 function History({ bot }: { bot: Bot }) {
   const { history, load } = useChatHistory(bot);
-  return createElement("button", { onClick: load }, history.map(message => message.text).join(","));
+  const { pins } = useChatPins(bot, new Map(history.map(message => [message.id, message])), undefined, false);
+  return createElement("button", { onClick: load, "data-pins": pins.map(pin => pin.id).join(",") }, history.map(message => message.text).join(","));
 }
 function Probe() {
   const store = useStore();
@@ -101,6 +103,28 @@ it("updates a visible card when its server patch arrives", () => {
   expect(host.textContent).toBe("Waiting for answer");
   flushSync(() => dispatch({ type: "messagePatched", threadId: "B-old", message: { ...card, text: "Answered" } }));
   expect(host.textContent).toBe("Answered");
+});
+
+it("refreshes pinned previews when the active branch changes", async () => {
+  const url = "/api/threads/B-old/messages?view=pins";
+  const old = line("old");
+  let response = [old];
+  requests.mockImplementation(input => input === url
+    ? Promise.resolve(Response.json({ messages: response }))
+    : new Promise(() => {}));
+  flushSync(() => dispatch({ type: "taskSwitched", bot: {
+    ...profile, activeLeafId: old.id, messages: [old],
+    tasks: profile.tasks!.map(task => ({ ...task, pinnedMessageIds: [old.id] })),
+  } }));
+  const pins = () => host.querySelector("button")?.getAttribute("data-pins");
+  await vi.waitFor(() => expect(pins()).toBe(old.id));
+  response = [];
+  flushSync(() => dispatch({ type: "threadActive", threadId: profile.threadId, activeLeafId: "new-branch" }));
+  expect(pins()).toBe("");
+  await vi.waitFor(() => expect(requests.mock.calls.filter(([path]) => path === url)).toHaveLength(2));
+  response = [old];
+  flushSync(() => dispatch({ type: "threadActive", threadId: profile.threadId, activeLeafId: old.id }));
+  await vi.waitFor(() => expect(pins()).toBe(old.id));
 });
 
 it("uses compact history on both sides of the phone breakpoint", async () => {

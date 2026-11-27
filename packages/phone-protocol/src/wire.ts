@@ -169,6 +169,7 @@ export interface WireTask extends InboxTask {
   lastReadMessageId?: string;
   /** true after an edit/branch-switch rewound the visible conversation. */
   rewound?: boolean;
+  pinnedMessageIds?: string[];
   pinnedMessageId?: string;
   /** Runtime-only state, reset on load and never persisted. */
   activity?: BotActivity;

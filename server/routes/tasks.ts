@@ -1,3 +1,4 @@
+import { setMessagePin } from "../message-pins.ts";
 import { approvalModeFor, approvalModeWidens, isApprovalMode, type ApprovalMode } from "../../shared/approval-mode.ts";
 import { threadLinkUrl } from "../../shared/thread-link.ts";
 import type { TaskResponse, WireBot, WireTask } from "../../shared/wire.ts";
@@ -274,10 +275,25 @@ export function createTaskRoutes(deps: TaskRouteDeps): RouteHandler & { deleteTa
       if (!body || typeof body !== "object" || Array.isArray(body)) return json(res, 400, { error: "body must be a JSON object" });
       const current = store.projectBotForTask(m[1], m[2]);
       if (!current) return json(res, 404, { error: "no such task" });
-      const allowed = new Set(["title", "projectId", "modelSelection", "updateBotDefault", "resetApprovalToAsk", "approvalMode", "autoApprove", "requireAvailableModel", "pinnedMessageId", "acknowledgeLocalAuto", "archivedAt", "pinned", "snoozedUntil", "surface", "refreshPermissions", "link"]);
+      const allowed = new Set(["title", "projectId", "modelSelection", "updateBotDefault", "resetApprovalToAsk", "approvalMode", "autoApprove", "requireAvailableModel", "pinnedMessageId", "messagePin", "importMessagePins", "acknowledgeLocalAuto", "archivedAt", "pinned", "snoozedUntil", "surface", "refreshPermissions", "link"]);
       if (Object.keys(body).some((key) => !allowed.has(key))) return json(res, 400, { error: "unsupported thread setting" });
       const notYours = cloudThreadRefusal(auth, m[2]);
       if (notYours) return json(res, 403, { error: notYours });
+      if (body.messagePin !== undefined || body.importMessagePins !== undefined) {
+        if (Object.keys(body).length !== 1) return json(res, 400, { error: "Send pin changes separately" });
+        if (body.messagePin !== undefined) {
+          const result = setMessagePin(store, m[1], m[2], body.messagePin?.id, body.messagePin?.pinned);
+          return json(res, result.error ? 400 : 200, result);
+        }
+        if (!Array.isArray(body.importMessagePins) || body.importMessagePins.some((id: unknown) => typeof id !== "string"))
+          return json(res, 400, { error: "Expected message IDs" });
+        const task = store.taskByThread(m[1], m[2])!;
+        const ids = task.pinnedMessageIds ?? [];
+        const valid = new Set(store.messagesFor(m[2]).filter(msg => msg.kind === "text").map(msg => msg.id));
+        const legacy = [...new Set<string>(body.importMessagePins)].filter(id => valid.has(id) && !ids.includes(id));
+        if (legacy.length) store.patchTask(m[1], m[2], { pinnedMessageIds: [...ids, ...legacy] });
+        return json(res, 200, { imported: true });
+      }
       // On a Cloud home only the owner decides whether a bot may act without asking, even in someone else's conversation.
       if (CLOUD_HOME && !cloudOwnerSession(auth) &&
         (body.approvalMode !== undefined || body.autoApprove !== undefined || body.acknowledgeLocalAuto !== undefined || body.updateBotDefault === true || body.refreshPermissions === true)) {

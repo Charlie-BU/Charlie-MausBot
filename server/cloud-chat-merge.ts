@@ -116,6 +116,10 @@ function carriedTask(task: TaskRecord | GroupTaskRecord, owner: Owner, rows: rea
   const order = newest(rows.filter(movesThreadToTop).map((row) => row.turnCompletedAt ?? row.at));
   const stamps = { updatedAt: Math.max(task.createdAt, newest(rows.map((row) => row.at))), ...(Number.isFinite(order) ? { lastThreadOrderAt: order } : {}) };
   if (owner.kind === "group") return { ...kept, ...stamps } as unknown as GroupTaskRecord;
+  const pins = source.pinnedMessageIds;
+  if (Array.isArray(pins) && pins.every(id => typeof id === "string" && id.length > 0)) {
+    kept.pinnedMessageIds = [...new Set(pins)];
+  }
   const projectId = "projectId" in task && task.projectId && projects?.some((project) => project.id === task.projectId) ? { projectId: task.projectId } : {};
   return { ...kept, ...projectId, ...stamps, resumeCursors: {}, unread: false } as unknown as TaskRecord;
 }

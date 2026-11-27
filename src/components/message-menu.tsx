@@ -31,7 +31,7 @@ export function roomPin(group: Group, message: Message, dispatch: ReturnType<typ
   };
 }
 
-function pinItem(pin: PinAction | undefined): MessageMenuItem[] {
+export function pinItem(pin: PinAction | undefined): MessageMenuItem[] {
   if (!pin) return [];
   return [{
     key: "pin",

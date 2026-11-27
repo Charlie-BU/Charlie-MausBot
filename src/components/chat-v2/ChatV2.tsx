@@ -11,7 +11,8 @@ import { stateForBot } from "@/lib/mascot";
 import { JumpToLatestButton } from "../JumpToLatestButton";
 import { CopyButton, INTERACTIVE, MESSAGE_ROW, MessageActions, messageActionClass, ReplyAction } from "../MessageActions";
 import { ReactAction, ReactionChips } from "../Reactions";
-import { deleteMessageItem, replyAndCopy, useBotMessageMenu } from "../message-menu";
+import { ChatPins, useChatPins } from "./ChatPins";
+import { type PinAction, pinItem, deleteMessageItem, replyAndCopy, useBotMessageMenu } from "../message-menu";
 import { ChatHeaderMenu } from "../ChatMoreMenu";
 import { ChatFindBar } from "../ChatFindBar";
 import { useChatFindRequests, useChatFindShortcut } from "@/lib/chat-find";
@@ -69,13 +70,13 @@ import { useHiddenMessages } from "../HiddenMessages";
 
 const EMPTY_TRANSCRIPT: Message[] = [];
 
-function BotBubbleActions({ message, botId, threadId, text, canReact, onReply, raw, toggleRaw, onShowTrace, onDelete }: {
-  message: Message; botId: string; threadId: string; text: string; canReact: boolean;
+function BotBubbleActions({ pin, message, botId, threadId, text, canReact, onReply, raw, toggleRaw, onShowTrace, onDelete }: {
+  pin?: PinAction; message: Message; botId: string; threadId: string; text: string; canReact: boolean;
   onReply?: () => void; onDelete?: (id: string) => void; raw: boolean; toggleRaw: () => void; onShowTrace?: () => void;
 }) {
   const items = useBotMessageMenu({
     text, botId, threadId, messageId: message.id, tts: undefined, localVoice: false,
-    canSpeak: false, viewRaw: raw, onToggleRaw: toggleRaw,
+    pin, canSpeak: false, viewRaw: raw, onToggleRaw: toggleRaw,
   });
   const menu = [...items, ...deleteMessageItem(message, onDelete)];
   return <MessageActions side="bot" className="v2-bubble-actions" forceOpen={raw} preferMenuAbove
@@ -106,7 +107,8 @@ function ChatV2Presence({ bot, stopping }: { bot: Bot; stopping: boolean }) {
   </div>;
 }
 
-export const Row = memo(function Row({ message: m, botId, botName, color, threadId, busy, hasMore, transcript, reply, failure, quoted, jumpTo, canLoadQuote, loadingQuote, digest, ownBubbleStyle, phoneLayout = false, mentionPeers, onDelete }: {
+export const Row = memo(function Row({ message: m, botId, botName, color, threadId, busy, hasMore, transcript, reply, failure, quoted, jumpTo, canLoadQuote, loadingQuote, digest, ownBubbleStyle, phoneLayout = false, mentionPeers, onDelete, pinned, onPin }: {
+  pinned?: boolean; onPin?: (id: string, pinned: boolean) => void;
   mentionPeers?: readonly MentionPeer[];
   onDelete?: (id: string) => void;
   message: Message; botId: string; botName: string; color: Bot["color"]; threadId: string;
@@ -158,6 +160,10 @@ export const Row = memo(function Row({ message: m, botId, botName, color, thread
   const attachmentsOnly = !m.replyToId && !text.trim() &&
     Boolean(images?.length || files?.length || m.attachments?.length || legacy?.pastes?.length);
   const bare = attachmentsOnly || (!m.replyToId && !voiceNotes?.length && !raw && isImageOnlyMarkdown(text));
+  const pin = onPin && m.kind === "text" && !isLiveReply(m) && !m.id.startsWith("optimistic-") ? {
+    pinned: Boolean(pinned),
+    onToggle: () => onPin(m.id, !pinned),
+  } : undefined;
   const attachmentContext = { threadId, messageId: m.id };
   if (!text && !m.attachments?.length && !images?.length && !files?.length && !legacy?.pastes?.length) return null;
   return <article className="v2-message" data-own={own || undefined}>
@@ -196,13 +202,13 @@ export const Row = memo(function Row({ message: m, botId, botName, color, thread
       </div>}
     </div>}
     </div>
-    {own ? <MessageActions side="user" className="v2-bubble-actions" menu={deleteMessageItem(m, onDelete)}
+    {own ? <MessageActions side="user" className="v2-bubble-actions" menu={[...pinItem(pin), ...deleteMessageItem(m, onDelete)]}
         contextItems={reply ? replyAndCopy(() => reply(m), text) : []}>
         {reply && <ReplyAction onReply={() => reply(m)} />}
       </MessageActions>
       : <div className="v2-action-stack">
         <div className="v2-action-layer" inert={showTrace}>
-          <BotBubbleActions onDelete={onDelete} message={m} botId={botId} threadId={threadId} text={text} canReact={Boolean(reply) && !peer}
+          <BotBubbleActions pin={pin} onDelete={onDelete} message={m} botId={botId} threadId={threadId} text={text} canReact={Boolean(reply) && !peer}
           onReply={reply && (() => reply(m))} raw={raw} onShowTrace={phoneLayout && digest ? () => setShowTrace(true) : undefined} toggleRaw={() => setRaw(value => !value)} />
         </div>
         {digest && <div ref={inlineTrace} className="v2-action-layer" inert={!showTrace}><DigestChip message={digest} inline /></div>}
@@ -284,6 +290,9 @@ export function ChatV2({ profile, phoneLayout = false }: { profile: Bot; phoneLa
   const unread = useUnreadDivider({ threadId: bot.threadId, messages: history, following: viewport.following, hasMore: historyPage.hasMore });
   const focusId = focused?.threadId === bot.threadId ? focused.messageId : undefined;
   const { hiddenIds, requestDelete, dialog: deleteDialog } = useHiddenMessages(bot.threadId);
+  const userName = useStoreSelector(s => s.config?.profile?.name);
+  const { pins, update, pinnedIds } = useChatPins(bot, messageById, userName, writable);
+  const visiblePins = useMemo(() => pins.filter(pin => !hiddenIds.has(pin.id)), [pins, hiddenIds]);
   const items = useMemo(() => groupChatWork(messages, busy, history, focusId).flatMap<TranscriptItem>(item => {
     if (item.kind === "message") return hiddenIds.has(item.message.id) ? [] : [item];
     const visible = item.messages.filter(message => !hiddenIds.has(message.id));
@@ -370,7 +379,7 @@ export function ChatV2({ profile, phoneLayout = false }: { profile: Bot; phoneLa
       {message.id === unread.messageId && <NewMessagesDivider fading={unread.fading} />}
       {editing?.id === message.id ? <form onSubmit={e => { e.preventDefault(); const text = String(new FormData(e.currentTarget).get("text") ?? "").trim(); if (text) { dispatch({ type: "editMessage", botId: bot.id, threadId: bot.threadId, messageId: editing.id, text }); setEditing(null); } }}>
         <input autoFocus className="outline-none focus:bg-raised/50" name="text" defaultValue={editing.text} onKeyDown={e => { if (e.key === "Escape") setEditing(null); }} /></form> :
-        <Row onDelete={requestDelete} mentionPeers={mentionPeers} phoneLayout={phoneLayout} ownBubbleStyle={ownBubbleStyle} digest={digestByReply.get(message.id)} message={message} botId={bot.id} botName={bot.name} color={bot.color} threadId={bot.threadId}
+        <Row pinned={pinnedIds.has(message.id)} onPin={writable ? update : undefined} onDelete={requestDelete} mentionPeers={mentionPeers} phoneLayout={phoneLayout} ownBubbleStyle={ownBubbleStyle} digest={digestByReply.get(message.id)} message={message} botId={bot.id} botName={bot.name} color={bot.color} threadId={bot.threadId}
           busy={busy} hasMore={message.kind === "call" && historyPage.hasMore}
           failure={message.tool && failedTurnCause(message.tool.name) !== null
             ? <FailedTurnRow tool={message.tool} engine={engine} botId={bot.id} threadId={bot.threadId}
@@ -401,10 +410,11 @@ export function ChatV2({ profile, phoneLayout = false }: { profile: Bot; phoneLa
         <ChatHeaderMenu bot={bot} history={history} openOnHover={false} />
       </div>
     </div>
-    {(findOpen || error) && <div className="v2-banners">
+    <div className="v2-banners">
+      <ChatPins key={bot.threadId} pins={visiblePins} remove={writable ? id => update(id, false) : undefined} jump={id => historyPage.jumpTo(id, messageById.has(id))} />
       {findOpen && <ChatFindBar threadId={bot.threadId} inForkPanel={false} onClose={() => setFindOpen(false)} />}
       <ChatErrorBanner message={error} onDismiss={() => dispatch({ type: "error", message: null })} />
-    </div>}
+    </div>
     <div data-bot-list-scroll="" className="v2-scroll" ref={viewport.scrollRef} {...viewport.scrollHandlers}>
       <div ref={viewport.transcriptRef} className="v2-paper chat-column" role="log" aria-label={t("chat.conversationWith", { name: bot.name })}>
         {viewport.hasEarlier && <div ref={viewport.topSentinelRef} aria-hidden="true" className="h-px w-full" />}

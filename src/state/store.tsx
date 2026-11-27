@@ -215,7 +215,7 @@ export interface ModelSelection {
   variant?: string;
 }
 
-export interface Task extends Pick<WireTask, "private" | "shared" | "sharedWith" | "setupRequest" | "inbox" | "openAsks" | "askedBy"> {
+export interface Task extends Pick<WireTask, "pinnedMessageIds" | "private" | "shared" | "sharedWith" | "setupRequest" | "inbox" | "openAsks" | "askedBy"> {
   waitingForTeammates?: boolean; sharedChat?: true;
   threadId: string;
   origin?: import("../../shared/wire").ForkOrigin;

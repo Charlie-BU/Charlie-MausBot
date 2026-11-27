@@ -97,6 +97,20 @@ describe("this computer's chats, by row", () => {
 });
 
 describe("on My Cloud", () => {
+  it("preserves ordered message pins when a conversation arrives in pages", () => {
+    const store = fresh();
+    const bot = store.createBot({ name: "Ava" }, { seedMessages: false });
+    const threadId = "t-arriving-pins";
+    const first: Message = { id: "pin-first", role: "user", kind: "text", text: "First", at: 1, parentId: null };
+    const second: Message = { id: "pin-second", role: "bot", kind: "text", text: "Second", at: 2, parentId: first.id };
+    const task = { threadId, title: "Pinned conversation", createdAt: 1, resumeCursors: {}, pinnedMessageIds: [second.id, first.id] };
+    take(store, [{ bot: bot.id, threadId, task, rows: [first], leaf: first.id, sent: false }]);
+    take(store, [{ bot: bot.id, threadId, task, rows: [second], leaf: second.id, sent: true }]);
+
+    expect(ids(store.activePath(threadId))).toEqual([first.id, second.id]);
+    expect(store.taskByThread(bot.id, threadId)?.pinnedMessageIds).toEqual(task.pinnedMessageIds);
+  });
+
   it("skips a conversation whose bot is not there or is answering in it, never brings back one removed there, and adds the rest once", () => {
     const store = fresh();
     const ava = store.createBot({ name: "Ava" }, { seedMessages: false });

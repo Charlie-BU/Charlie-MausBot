@@ -157,6 +157,20 @@ export function createThreadRoutes(deps: ThreadRouteDeps): RouteHandler {
       }
       const limit = pageSize(url.searchParams.get("limit"));
       if (limit === null) return json(res, 400, { error: "limit must be a non-negative whole number" });
+      if (url.searchParams.get("view") === "pins") {
+        const owner = store.botByThread(threadId);
+        const ids = owner && store.taskByThread(owner.id, threadId)?.pinnedMessageIds;
+        if (!ids?.length) return json(res, 200, { messages: [] });
+        const { messages: path, positions } = store.activePathIndex(threadId);
+        const messages = ids.flatMap(id => {
+          const position = positions.get(id);
+          const message = position === undefined ? undefined : path[position];
+          if (!message || message.kind !== "text") return [];
+          const { id: messageId, role, kind, text, from, peerAsk, roomRequest, attachments, at } = message;
+          return [{ id: messageId, role, kind, text, from, peerAsk, roomRequest, attachments, at }];
+        });
+        return json(res, 200, { messages });
+      }
       const before = url.searchParams.get("before");
       const around = url.searchParams.get("around");
       if (before && around) return json(res, 400, { error: "before and around cannot be combined" });

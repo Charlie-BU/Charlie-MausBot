@@ -110,14 +110,14 @@ const BUDGET_BASELINE: Record<string, number> = {
   "default+legacy-switches": 17726,
   "default+mausbot": 17778,
   "skills+shared+voice+mausbot": 18626,
-  "default+no-computer-pick": 16514,
-  "default+room": 16455,
-  "non-chief+room": 16338,
+  "default+no-computer-pick": 16854,
+  "default+room": 16795,
+  "non-chief+room": 16678,
   "skills+shared+voice+x+team+images": 18651,
   "default+images": 17742,
   "skills+shared+voice+x+team+images+hosting": 19853,
   "default+hosting": 18928,
-  "default+tools-off": 16087,
+  "default+tools-off": 16409,
 };
 
 type RpcAnswer = { id: number; result?: { tools?: unknown[]; content?: Array<{ text: string }>; isError?: boolean }; error?: { code: number; message: string } };
