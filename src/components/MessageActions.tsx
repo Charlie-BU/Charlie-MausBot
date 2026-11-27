@@ -4,6 +4,7 @@ import { popoverClosesOnKey, usePopoverDismiss } from "@/hooks/use-popover-dismi
 import { cn } from "@/lib/cn";
 import { useCopyFeedback } from "@/lib/copy-text";
 import { t } from "@/lib/i18n";
+import { overlayPortal } from "./ModalPresence";
 import { MENU_ITEM, MENU_SHEET } from "./menu-recipe";
 import { StreamingReplyContext } from "@/state/live-reply";
 
@@ -65,7 +66,7 @@ export function MessageActions({
   const menuRef = useRef<HTMLDivElement>(null);
   const menuId = useId();
   const [menuOpen, setMenuOpen] = useState(false);
-  const [pointAt, setPointAt] = useState<{ x: number; y: number; clientX: number; clientY: number } | null>(null);
+  const [pointAt, setPointAt] = useState<{ x: number; y: number } | null>(null);
   const offered = pointAt ? [...contextItems, ...items] : items;
   // use() may run conditionally: a closed menu has no reason to follow the turn.
   const busy = menuOpen && offered.some((item) => item.idleOnly) ? use(ChatBusyContext) : false;
@@ -73,8 +74,9 @@ export function MessageActions({
   const [hovered, setHovered] = useState(false);
   const [keyboardFocus, setKeyboardFocus] = useState(false);
   const [tapped, setTapped] = useState(false);
-  const [menuAbove, setMenuAbove] = useState(false);
-  const [menuFlipped, setMenuFlipped] = useState(false);
+  const menuBoundary = useRef({
+    contains: (target: unknown) => target instanceof Node && Boolean(rootRef.current?.contains(target) || menuRef.current?.contains(target)),
+  });
   const mirrored = side === "user";
   const streaming = use(StreamingReplyContext);
   const shown = !streaming && (forceOpen || menuOpen || hovered || keyboardFocus || tapped);
@@ -124,10 +126,8 @@ export function MessageActions({
       const target = event.target;
       if (!(target instanceof Element) || !target.closest("[data-chat-bubble]") || target.closest(INTERACTIVE) || target.closest(OWN_MENU_MEDIA)) return;
       if (window.getSelection()?.toString().trim()) return;
-      const box = rootRef.current?.getBoundingClientRect();
-      if (!box) return;
       event.preventDefault();
-      setPointAt({ x: event.clientX - box.left, y: event.clientY - box.top, clientX: event.clientX, clientY: event.clientY });
+      setPointAt({ x: event.clientX, y: event.clientY });
       setMenuOpen(true);
     };
     row.addEventListener("pointerenter", enter);
@@ -154,33 +154,50 @@ export function MessageActions({
   }, []);
 
   usePopoverDismiss(tapped && !menuOpen, rowRef, () => setTapped(false));
-  usePopoverDismiss(menuOpen, rootRef, () => {
+  usePopoverDismiss(menuOpen, menuBoundary, () => {
+    const focused = menuBoundary.current.contains(document.activeElement);
     setMenuOpen(false);
-    if (rootRef.current?.contains(document.activeElement)) moreRef.current?.focus();
+    if (focused) moreRef.current?.focus({ preventScroll: true });
   });
 
   useLayoutEffect(() => {
+    const sheet = menuRef.current;
+    const tray = rootRef.current;
+    if (!menuOpen || !sheet || !tray) return;
+    const anchor = (moreRef.current ?? tray).getBoundingClientRect();
+    const { left, right } = tray.getBoundingClientRect();
+    const { width, height } = sheet.getBoundingClientRect();
+    const gutter = 8;
+    const gap = 4;
+    const rtl = getComputedStyle(tray).direction === "rtl";
+    const alignRight = mirrored !== rtl;
+    const alignLeftX = pointAt?.x ?? left;
+    const alignRightX = (pointAt?.x ?? right) - width;
+    const below = pointAt?.y ?? anchor.bottom + gap;
+    const above = (pointAt?.y ?? anchor.top - gap) - height;
+    const x = alignRight && !pointAt
+      ? (alignRightX >= gutter ? alignRightX : alignLeftX)
+      : (alignLeftX + width <= window.innerWidth - gutter ? alignLeftX : alignRightX);
+    const y = ((!pointAt && preferMenuAbove) || below + height > window.innerHeight - gutter) && above >= gutter ? above : below;
+    sheet.style.left = `${Math.max(gutter, Math.min(x, window.innerWidth - width - gutter))}px`;
+    sheet.style.top = `${Math.max(gutter, Math.min(y, window.innerHeight - height - gutter))}px`;
+    sheet.dir = rtl ? "rtl" : "ltr";
+    sheet.querySelector<HTMLButtonElement>("[role=menuitem]:not(:disabled)")?.focus({ preventScroll: true });
+  }, [menuOpen, mirrored, pointAt, preferMenuAbove]);
+
+  useEffect(() => {
     if (!menuOpen) return;
-    const menuBox = menuRef.current?.getBoundingClientRect();
-    if (pointAt && menuBox) {
-      setMenuAbove(pointAt.clientY + menuBox.height > window.innerHeight - 8 && pointAt.clientY - menuBox.height > 8);
-      setMenuFlipped(pointAt.clientX + menuBox.width > window.innerWidth - 8 && pointAt.clientX - menuBox.width >= 8);
-      menuRef.current?.querySelector<HTMLButtonElement>("[role=menuitem]:not(:disabled)")?.focus();
-      return;
-    }
-    const more = moreRef.current?.getBoundingClientRect();
-    if (menuBox && more) setMenuAbove((preferMenuAbove || more.bottom + 4 + menuBox.height > window.innerHeight - 8) && more.top - 4 - menuBox.height > 8);
-    const rowBox = rootRef.current?.getBoundingClientRect();
-    if (menuBox && rowBox) {
-      const rtl = getComputedStyle(rootRef.current!).direction === "rtl";
-      const fitsRight = rowBox.left + menuBox.width <= window.innerWidth - 8;
-      const fitsLeft = rowBox.right - menuBox.width >= 8;
-      const fitsStart = rtl ? fitsLeft : fitsRight;
-      const fitsEnd = rtl ? fitsRight : fitsLeft;
-      setMenuFlipped(mirrored ? !fitsEnd && fitsStart : !fitsStart && fitsEnd);
-    }
-    menuRef.current?.querySelector<HTMLButtonElement>("[role=menuitem]:not(:disabled)")?.focus();
-  }, [menuOpen, pointAt, preferMenuAbove]);
+    const close = (event: Event) => {
+      if (event.target instanceof Node && menuRef.current?.contains(event.target)) return;
+      setMenuOpen(false);
+    };
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    return () => {
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+    };
+  }, [menuOpen]);
 
   const moveFocus = (event: KeyboardEvent<HTMLDivElement>) => {
     const items = [...(menuRef.current?.querySelectorAll<HTMLButtonElement>("[role=menuitem]:not(:disabled)") ?? [])];
@@ -231,19 +248,14 @@ export function MessageActions({
           <Ellipsis {...ACTION_ICON} aria-hidden="true" />
         </button>
       )}
-      {menuOpen && (
+      {menuOpen && overlayPortal(
         <div
           ref={menuRef}
           id={menuId}
           role="menu" data-look="menu"
           aria-label={t("chat.messageActions")}
           onKeyDown={moveFocus}
-          style={pointAt ? { left: pointAt.x, top: pointAt.y, translate: `${menuFlipped ? "-100%" : "0"} ${menuAbove ? "-100%" : "0"}` } : undefined}
-          className={cn(
-            "absolute z-40 min-w-52 max-w-[calc(100vw-2rem)] overflow-hidden", MENU_SHEET,
-            !pointAt && (menuAbove ? "bottom-full mb-1" : "top-full mt-1"),
-            !pointAt && (mirrored !== menuFlipped ? "end-0" : "start-0"),
-          )}
+          className={cn("fixed z-40 min-w-52 max-w-[calc(100vw-1rem)] max-h-[calc(100dvh-1rem)] overflow-y-auto", MENU_SHEET)}
         >
           {menu.map((item) => (
             <button
@@ -263,7 +275,8 @@ export function MessageActions({
               <span className="min-w-0 flex-1 truncate">{item.label}</span>
             </button>
           ))}
-        </div>
+        </div>,
+        rootRef.current?.closest("dialog[open]") ?? document.body,
       )}
     </div>
   );

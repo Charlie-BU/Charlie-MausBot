@@ -96,7 +96,7 @@ describe("room message actions", () => {
       group: { ...room, messages }, members: [lead], locale: "en", messages, transcript: messages, onReply: () => {},
     })));
     flushSync(() => host.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')!.click());
-    const items = [...host.querySelectorAll<HTMLButtonElement>("[role=menuitem]")];
+    const items = [...document.querySelectorAll<HTMLButtonElement>("[role=menuitem]")];
     expect(items.map((item) => item.textContent)).toEqual(expect.arrayContaining(["Read this aloud", "Show raw markdown", "Pin message", "Copy message ID"]));
     const speak = items.find((item) => item.textContent === "Read this aloud");
     expect(speak?.title).toBe("Add an ElevenLabs key in an agent profile to read messages aloud");
@@ -115,7 +115,7 @@ describe("room message actions", () => {
     const button = bar.querySelector<HTMLButtonElement>('button[aria-label="Read this aloud"]');
     expect(button?.disabled).toBe(false);
     flushSync(() => host.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')!.click());
-    const items = [...host.querySelectorAll<HTMLButtonElement>("[role=menuitem]")].map((item) => item.textContent);
+    const items = [...document.querySelectorAll<HTMLButtonElement>("[role=menuitem]")].map((item) => item.textContent);
     expect(items).toEqual(expect.arrayContaining(["Show raw markdown", "Pin message"]));
     expect(items).not.toContain("Read this aloud");
   });
@@ -136,7 +136,7 @@ describe("room message actions", () => {
       group: { ...room, messages }, members: [lead], locale: "en", messages, transcript: messages, onReply: () => {},
     }));
     const selectDelete = () => {
-      const item = Array.from(host.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).find(button => button.textContent === "Delete")!;
+      const item = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).find(button => button.textContent === "Delete")!;
       flushSync(() => item.click());
     };
     const dialog = () => document.querySelector('[role="alertdialog"]')!;

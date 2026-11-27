@@ -13,7 +13,7 @@ const body = () => host.querySelector<HTMLElement>("p")!;
 const tray = () => host.querySelector<HTMLElement>('[data-testid="message-actions"]')!;
 const shown = () => tray().dataset.shown === "true";
 const more = () => tray().querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')!;
-const items = () => [...host.querySelectorAll<HTMLButtonElement>("[role=menuitem]")];
+const items = () => [...document.querySelectorAll<HTMLButtonElement>("[role=menuitem]")];
 
 const pointer = (type: string, target: Element, pointerType: string) =>
   act(async () => {
@@ -111,7 +111,12 @@ describe("message actions row", () => {
     expect(items().map((item) => item.textContent)).toEqual(["Pin message", "Show raw markdown"]);
     await pointer("pointerleave", row(), "mouse");
     expect(shown()).toBe(true);
-    await act(async () => items()[0]!.click());
+    const item = items()[0]!;
+    expect(host.contains(item)).toBe(false);
+    expect(document.activeElement).toBe(item);
+    await pointer("pointerdown", item, "mouse");
+    expect(items()).toHaveLength(2);
+    await act(async () => item.click());
     expect(picked).toEqual(["pin"]);
     expect(items()).toHaveLength(0);
   });
