@@ -520,6 +520,34 @@ describe("full-screen image actions", () => {
     }
   });
 
+  it.each(["darwin", "win32"] as const)("copies and downloads without opening the menu on %s", async platform => {
+    const write = vi.fn(async () => {});
+    vi.stubGlobal("ogb", { platform });
+    vi.stubGlobal("ClipboardItem", class { constructor(readonly items: Record<string, Promise<Blob>>) {} });
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(new Blob(["png"], { type: "image/png" }))));
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { write } });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
+      expect(this.getAttribute("href")).toBe(image.downloadUrl);
+      expect(this.download).toBe("shot.png");
+    });
+    const preview = await openPreview();
+    try {
+      const modifier = platform === "darwin" ? { metaKey: true } : { ctrlKey: true };
+      for (const key of ["c", "s"]) {
+        const event = new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key, ...modifier });
+        await act(async () => { preview.dialog.dispatchEvent(event); });
+        expect(event.defaultPrevented).toBe(true);
+      }
+      expect(write).toHaveBeenCalledOnce();
+      expect(click).toHaveBeenCalledOnce();
+      expect(preview.button()).toBeNull();
+    } finally {
+      await preview.close();
+      click.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("fades the actions and preview independently before removing them", async () => {
     vi.useFakeTimers();
     const preview = await openPreview();
