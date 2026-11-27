@@ -37,7 +37,8 @@ import { MessageBoundary } from "./MessageBoundary";
 import { CopyButton, MESSAGE_ROW, MessageActions, messageActionClass, ReplyAction } from "./MessageActions";
 import { ReactAction, ReactionChips, useCanReact } from "./Reactions";
 import { ClusterLabel } from "./RoomClusterLabel";
-import { replyAndCopy, roomPin, useBotMessageMenu, userMessageMenu } from "./message-menu";
+import { deleteMessageItem, replyAndCopy, roomPin, useBotMessageMenu, userMessageMenu } from "./message-menu";
+import { useHiddenMessages } from "./HiddenMessages";
 import { forkMessageItem, ForkLinks } from "./ForkMessage";
 import { PHONE_LAYOUT, useMediaQuery } from "@/lib/use-media-query";
 import { RawMarkdownView, RawToggleAction } from "./RawMarkdownToggle";
@@ -140,6 +141,7 @@ function RoomTextMessage({
   emerging,
   eager,
   onReply,
+  onDelete,
   canReact,
   phone,
 }: {
@@ -150,6 +152,7 @@ function RoomTextMessage({
   emerging: boolean;
   eager: boolean;
   onReply: (message: Message) => void;
+  onDelete: (id: string) => void;
   canReact: boolean;
   phone: boolean;
 }) {
@@ -192,8 +195,9 @@ function RoomTextMessage({
   });
   const replyGroup = useMemo(() => !user && !isLiveReply(m) && botText.trim() ? replyAttachmentGroup(botText, m.attachments) : null, [user, m, botText]);
 
+  const deleteItem = deleteMessageItem(m, onDelete);
   const botActions = !user && (
-    <MessageActions side="bot" forceOpen={viewRaw || speaking} menu={[...botMenu, ...forkAction]} contextItems={replyAndCopy(() => onReply(m), botText)}>
+    <MessageActions side="bot" forceOpen={viewRaw || speaking} menu={[...botMenu, ...forkAction, ...deleteItem]} contextItems={replyAndCopy(() => onReply(m), botText)}>
       <ReplyAction onReply={() => onReply(m)} />
       {canReact && m.from && <ReactAction threadId={group.threadId} message={m} />}
       {botText && <CopyButton text={botText} className={messageActionClass} />}
@@ -206,7 +210,7 @@ function RoomTextMessage({
       {speaker && <div className="mb-0.5 px-1 text-right text-[13px] [overflow-wrap:anywhere] font-semibold text-ink-secondary">{speaker}</div>}
       <div className={cn("flex w-full items-end gap-1.5", user ? "justify-end" : "justify-start")}>
         {user && (
-          <MessageActions side="user" menu={[...userMessageMenu({ messageId: m.id, pin }), ...forkAction]} contextItems={replyAndCopy(() => onReply(m), display)}>
+          <MessageActions side="user" menu={[...userMessageMenu({ messageId: m.id, pin }), ...forkAction, ...deleteItem]} contextItems={replyAndCopy(() => onReply(m), display)}>
             <ReplyAction onReply={() => onReply(m)} />
             {Boolean(display.trim()) && <CopyButton text={display} className={messageActionClass} />}
           </MessageActions>
@@ -337,10 +341,12 @@ export const Transcript = memo(function Transcript({
   const memberOf = (id?: string) => members.find((b) => b.id === id); const messages = useLiveTranscript(group.threadId, saved, transcript, members, roomThreadSpeakerId(group, group.threadId));
   const focus = state.focusMessage;
   const focusId = focus?.threadId === group.threadId ? focus.messageId : undefined;
-  const folds = useMemo(() => roomTurnFolds(messages), [messages, locale]);
-  const items = useMemo(() => groupActivityRuns(messages.filter(message =>
+  const { hiddenIds, requestDelete, dialog: deleteDialog } = useHiddenMessages(group.threadId);
+  const visibleMessages = useMemo(() => messages.filter(message => !hiddenIds.has(message.id)), [messages, hiddenIds]);
+  const folds = useMemo(() => roomTurnFolds(visibleMessages), [visibleMessages, locale]);
+  const items = useMemo(() => groupActivityRuns(visibleMessages.filter(message =>
     message.id === focusId || (!folds.hiddenIds.has(message.id) &&
-    (message.kind !== "activity" || roomActivityVisible(message, showToolCalls))))), [messages, showToolCalls, folds, focusId]);
+    (message.kind !== "activity" || roomActivityVisible(message, showToolCalls))))), [visibleMessages, showToolCalls, folds, focusId]);
   const newestMessageId = messages.at(-1)?.id;
   const newestUserMessageId = [...messages].reverse().find((message) => message.role === "user")?.id;
   const roomBusy = roomThreadWorking(group, group.threadId);
@@ -379,6 +385,7 @@ export const Transcript = memo(function Transcript({
   };
   return (
     <>
+      {deleteDialog}
       {items.map((item, i) => {
         const previous = items[i - 1];
         const prev = previous && (previous.kind === "run" ? previous.messages.at(-1) : previous.message);
@@ -478,6 +485,7 @@ export const Transcript = memo(function Transcript({
                 emerging={m.id === emergingId}
                 eager={m.id === newestMessageId || m.id === newestUserMessageId}
                 onReply={onReply}
+                onDelete={requestDelete}
                 canReact={canReact}
                 phone={phone}
               />
@@ -512,6 +520,7 @@ export const Transcript = memo(function Transcript({
                       emerging={false}
                       eager={false}
                       onReply={onReply}
+                      onDelete={requestDelete}
                       canReact={canReact}
                       phone={phone}
                     />

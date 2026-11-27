@@ -1,4 +1,4 @@
-import { BookmarkPlus, Code, Copy, Eye, Pencil, Pin, PinOff, RefreshCw, Reply, Square, Volume2 } from "lucide-react";
+import { BookmarkPlus, Code, Copy, Eye, Pencil, Pin, PinOff, RefreshCw, Reply, Square, Trash2, Volume2 } from "lucide-react";
 import { copyText } from "@/lib/copy-text";
 import { t } from "@/lib/i18n";
 import { useContext } from "react";
@@ -14,6 +14,11 @@ export function replyAndCopy(onReply: () => void, text: string): MessageMenuItem
     { key: "reply", icon: <Reply {...ACTION_ICON} />, label: t("chat.reply"), onSelect: onReply },
     ...(text.trim() ? [{ key: "copy", icon: <Copy {...ACTION_ICON} />, label: t("chat.copyMessage"), onSelect: () => { void copyText(text); } }] : []),
   ];
+}
+
+export function deleteMessageItem(message: Message, onDelete?: (id: string) => void): MessageMenuItem[] {
+  if (!onDelete || message.kind !== "text" || message.id.startsWith("optimistic-")) return [];
+  return [{ key: "delete", icon: <Trash2 {...ACTION_ICON} />, label: t("common.delete"), onSelect: () => onDelete(message.id) }];
 }
 
 export function roomPin(group: Group, message: Message, dispatch: ReturnType<typeof useStore>["dispatch"]): PinAction | undefined {

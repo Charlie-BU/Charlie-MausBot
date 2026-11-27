@@ -2549,6 +2549,8 @@
   "inspector.run.response": "Response recorded",
   "chat.copyMessage": "Copy message",
   "chat.copyMessageId": "Copy message ID",
+  "chat.deleteMessageTitle": "Delete this message?",
+  "chat.deleteMessageBody": "This removes the message from the chat view on this device. The message and its attachments will still be included in the AI’s conversation context.",
   "chat.copyMessageDone": "Copied",
   "chat.copyMessageFailed": "Copy failed",
   "chat.showRawMarkdown": "Show raw markdown",

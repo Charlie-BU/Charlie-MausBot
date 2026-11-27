@@ -127,6 +127,41 @@ describe("room message actions", () => {
     expect(html).not.toContain("Show raw markdown");
   });
 
+  it("requires confirmation before hiding a message and its attachment in the transcript", () => {
+    vi.unstubAllGlobals();
+    const target = text("delete-file", "user", 'See file\n<attached-file path="/store/delete.zip" name="delete.zip" />');
+    const other = text("keep-reply", "bot", "Keep this reply");
+    const messages = [target, other];
+    const render = () => root.render(createElement(Transcript, {
+      group: { ...room, messages }, members: [lead], locale: "en", messages, transcript: messages, onReply: () => {},
+    }));
+    const selectDelete = () => {
+      const item = Array.from(host.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).find(button => button.textContent === "Delete")!;
+      flushSync(() => item.click());
+    };
+    const dialog = () => document.querySelector('[role="alertdialog"]')!;
+    const choose = (label: string) => {
+      const button = Array.from(dialog().querySelectorAll("button")).find(button => button.textContent?.trim() === label)!;
+      flushSync(() => button.click());
+    };
+
+    flushSync(render);
+    const row = host.querySelector('[data-mid="delete-file"]')!;
+    flushSync(() => row.querySelector('[data-chat-bubble]')!.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })));
+    selectDelete();
+    expect(dialog().textContent).toContain("still be included in the AI’s conversation context");
+    choose("Cancel");
+    expect(host.textContent).toContain("delete.zip");
+    flushSync(() => row.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')!.click());
+    selectDelete();
+    choose("Delete");
+    expect(host.querySelector('[data-mid="delete-file"]')).toBeNull();
+    expect(host.textContent).toContain("Keep this reply");
+    expect(JSON.parse(localStorage.getItem("omb-hidden-messages")!)).toContain(target.id);
+    expect(messages[0]).toEqual(target);
+    expect(fixture.dispatch).not.toHaveBeenCalled();
+  });
+
   it("shows standalone files without a chat bubble for both senders", () => {
     const userFile = text("u", "user", '<attached-file path="/store/input.zip" name="input.zip" />');
     const botFile: Message = {

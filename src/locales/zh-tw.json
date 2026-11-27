@@ -2316,6 +2316,8 @@
   "inspector.run.response": "已記錄回應",
   "chat.copyMessage": "複製訊息",
   "chat.copyMessageId": "拷貝訊息 ID",
+  "chat.deleteMessageTitle": "刪除這則訊息？",
+  "chat.deleteMessageBody": "刪除後，這則訊息會從目前裝置的聊天畫面隱藏。後續對話仍會將這則訊息及其附件作為上下文提供給 AI。",
   "chat.copyMessageDone": "已複製",
   "chat.copyMessageFailed": "複製失敗",
   "chat.showRawMarkdown": "顯示原始 Markdown",
