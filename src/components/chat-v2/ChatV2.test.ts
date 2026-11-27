@@ -68,7 +68,8 @@ it("keeps file attachments and legacy pasted source outside the user bubble", as
   const file = '<attached-file path="/tmp/report.html" name="Report.html" />';
   const message = render(`Please review\n\n${paste}\n\n${file}`);
   expect(message).toMatch(/Report\.html[\s\S]*aria-expanded="false"[\s\S]*data-chat-bubble[\s\S]*Please review/);
-  expect(message).not.toContain("Private report");
+  expect(message).toMatch(/aria-hidden="true"[\s\S]*&lt;title&gt;Private report[\s\S]*data-chat-bubble/);
+  expect(message.slice(message.indexOf("data-chat-bubble"))).not.toContain("Private report");
   expect(render(paste)).not.toContain("data-chat-bubble");
 });
 

@@ -45,28 +45,22 @@ it("keeps removed uploads visible for their fade without letting them receive in
   }
 });
 
-it("keeps pasted source mounted through the collapse animation", () => {
-  vi.useFakeTimers();
+it("keeps the paste panel laid out while toggling access to its contents", () => {
   const host = document.createElement("div");
   const root = createRoot(host);
   try {
     flushSync(() => root.render(createElement(SentPastedText, { pastes: ["<title>Report</title>"] })));
     const button = host.querySelector("button")!;
     const panel = host.querySelector("[id]")!;
-    expect(button.getAttribute("aria-expanded")).toBe("false");
-    expect(panel.textContent).toBe("");
-    flushSync(() => button.click());
-    expect(button.getAttribute("aria-expanded")).toBe("true");
-    expect(button.querySelector(".rotate-90")).not.toBeNull();
-    expect(panel.textContent).toBe("<title>Report</title>");
-    flushSync(() => button.click());
-    expect(button.getAttribute("aria-expanded")).toBe("false");
-    expect(panel.hasAttribute("inert")).toBe(true);
-    expect(panel.textContent).toBe("<title>Report</title>");
-    flushSync(() => vi.advanceTimersByTime(200));
-    expect(panel.textContent).toBe("");
+    const source = panel.querySelector("pre")!;
+    expect(source.textContent).toBe("<title>Report</title>");
+    for (const open of [false, true, false]) {
+      expect(button.getAttribute("aria-expanded")).toBe(String(open));
+      expect(panel.hasAttribute("inert")).toBe(!open);
+      expect(panel.querySelector("pre")).toBe(source);
+      flushSync(() => button.click());
+    }
   } finally {
     root.unmount();
-    vi.useRealTimers();
   }
 });

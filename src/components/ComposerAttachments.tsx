@@ -14,7 +14,6 @@ import {
   type PasteAttachment,
 } from "@/lib/composer-attachments";
 import { AttachmentPreviewDialog, previewImage, type PreviewImage } from "./AttachmentPreview";
-import { useMenuMotion } from "./MenuMotion";
 import { CitationBadge } from "./CitationUI";
 import type { CitationAttachment } from "@/lib/citations";
 import { t } from "@/lib/i18n";
@@ -263,7 +262,6 @@ export function SentPastedText({ pastes }: { pastes: readonly string[] }) {
 function SentPasteChip({ text }: { text: string }) {
   const [open, setOpen] = useState(false);
   const bodyId = useId();
-  const motion = useMenuMotion(open);
   return (
     <div className="mb-1 ms-auto w-fit min-w-0 max-w-full overflow-hidden rounded-xl border border-hairline/25 bg-transparent text-[12px] text-ink">
       <button type="button" aria-controls={bodyId} aria-expanded={open} onClick={() => setOpen(!open)}
@@ -276,7 +274,7 @@ function SentPasteChip({ text }: { text: string }) {
         className={cn("grid [contain:inline-size] motion-safe:transition-[grid-template-rows,opacity] motion-safe:duration-200 motion-safe:ease-in-out",
           open ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0")}>
         <div className="min-h-0 min-w-0 overflow-clip">
-          {motion.shown && <pre dir="auto" className="max-h-64 overflow-auto whitespace-pre-wrap break-all px-2.5 pb-2">{text}</pre>}
+          <pre dir="auto" className="max-h-64 overflow-auto whitespace-pre-wrap break-all px-2.5 pb-2">{text}</pre>
         </div>
       </div>
     </div>
