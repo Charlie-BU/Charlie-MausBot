@@ -5,6 +5,8 @@ import { reducedMotion } from "@/lib/onboarding";
 import { cn } from "@/lib/cn";
 import {
   attachmentImageUrl,
+  byteLength,
+  countLines,
   intakeFiles,
   imageBytesLeft,
   imageSlotsLeft,
@@ -252,3 +254,14 @@ function attachmentFade(visible: boolean) {
 
 
 const attachmentActionClass = "flex size-7 shrink-0 items-center justify-center rounded-lg interaction:bg-raised/50 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus";
+
+export function SentPastedText({ pastes }: { pastes: readonly string[] }) {
+  return pastes.map((text, index) => (
+    <details key={index} className="mb-1 w-fit min-w-0 max-w-full rounded-xl border border-hairline/25 bg-card text-xs text-ink">
+      <summary className="min-h-[42px] cursor-pointer rounded-xl px-3 py-3">
+        {t("composer.chip.pasted")} · {pasteSummaryText({ lines: countLines(text), size: byteLength(text) })}
+      </summary>
+      <pre dir="auto" className="max-h-64 max-w-[min(65ch,65vw)] overflow-auto whitespace-pre-wrap break-all px-3 pb-3">{text}</pre>
+    </details>
+  ));
+}

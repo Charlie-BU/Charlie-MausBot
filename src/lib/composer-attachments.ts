@@ -256,9 +256,19 @@ export function clipboardImageFiles(
 /** A file copied in Finder or Explorer reaches a paste in clipboardData.files (Chromium), with only its name as text.
  * Anything there but pictures is attached the way a picked file is; pictures alone keep the image paste. */
 export function clipboardFilesToAttach<T extends { type: string }>(
-  clipboardData: { files?: Iterable<T> | null } | null | undefined,
+  clipboardData: {
+    files?: Iterable<T> | null;
+    items?: Iterable<{ kind: string; getAsFile(): T | null }> | null;
+  } | null | undefined,
 ): T[] {
   const files = Array.from(clipboardData?.files ?? []);
+  if (!files.length) {
+    for (const item of clipboardData?.items ?? []) {
+      if (item.kind !== "file") continue;
+      const file = item.getAsFile();
+      if (file) files.push(file);
+    }
+  }
   return files.some((file) => !isImageFile(file)) ? files : [];
 }
 
@@ -418,46 +428,8 @@ export function appendPastedText(text: string, pasted: string): string {
   return `${text}${text.endsWith("\n") ? "" : "\n\n"}${pasted}`;
 }
 
-export const INLINE_DROP_LIMIT = 512 * 1024;
-
-export type DroppedFile = Pick<File, "name" | "size" | "type" | "text"> &
+export type DroppedFile = Pick<File, "name" | "size" | "type"> &
   Partial<Pick<File, "arrayBuffer">>;
-
-export async function attachmentsFromDroppedFiles<T extends DroppedFile>(
-  files: readonly T[],
-  getPath: (file: T) => string,
-): Promise<{ attachments: Attachment[]; rejectedNames: string[] }> {
-  const results = await Promise.all(
-    files.map(async (file) => {
-      let path = "";
-      try {
-        path = getPath(file);
-      } catch {
-      }
-      if (path) return { attachment: fileAttachment(file.name, path, file.size) };
-      if (isInlineText(file) && file.size <= INLINE_DROP_LIMIT) {
-        try {
-          return { attachment: pasteAttachment(await file.text()) };
-        } catch {
-        }
-      }
-      return { rejectedName: file.name };
-    }),
-  );
-
-  return {
-    attachments: results.flatMap((result) =>
-      "attachment" in result && result.attachment ? [result.attachment] : [],
-    ),
-    rejectedNames: results.flatMap((result) =>
-      "rejectedName" in result && result.rejectedName ? [result.rejectedName] : [],
-    ),
-  };
-}
-
-function isInlineText(file: DroppedFile): boolean {
-  return file.type.startsWith("text/") || file.type === "application/json";
-}
 
 export function byteLength(text: string): number {
   return new TextEncoder().encode(text).length;
@@ -507,6 +479,7 @@ export type TranscriptAttachments = {
   display: string;
   images: TranscriptImageAttachment[];
   files: TranscriptFileAttachment[];
+  pastes?: string[];
 };
 
 /** A second encoded pass stays encoded rather than turning attacker-controlled text into markup. */
@@ -647,9 +620,12 @@ export function splitTranscriptAttachments(
   text: string,
   trimDisplay = true,
   hidePasteWrappers = true,
+  { collapsePastes = false }: { collapsePastes?: boolean } = {},
 ): TranscriptAttachments {
   const images: TranscriptImageAttachment[] = [];
   const files: TranscriptFileAttachment[] = [];
+  const pastes: string[] = [];
+  let pasteStart: { offset: number; displayLength: number } | undefined;
   let display = "";
   let fence: TranscriptFence | null = null;
   let block: TranscriptBlock | null = null;
@@ -676,6 +652,14 @@ export function splitTranscriptAttachments(
     } else if (block) {
       if (block.kind === "untilBlank") {
         if (/^[\t ]*$/.test(line)) block = null;
+      } else if (pasteStart) {
+        if (PASTED_TEXT_CLOSE.test(line)) {
+          pastes.push(text.slice(pasteStart.offset, cursor).replace(/\r?\n$/, ""));
+          display = display.slice(0, pasteStart.displayLength);
+          pasteStart = undefined;
+          consumed = true;
+          block = null;
+        }
       } else if (line.toLowerCase().includes(block.closingToken)) {
         if (block.hiddenWrapper && PASTED_TEXT_CLOSE.test(line)) consumed = true;
         block = null;
@@ -702,6 +686,7 @@ export function splitTranscriptAttachments(
         block = transcriptBlockStarting(line);
         if (hidePasteWrappers && block?.kind === "untilToken" && block.closingToken === "</pasted-text>" && PASTED_TEXT_OPEN.test(line)) {
           block = { ...block, hiddenWrapper: true };
+          if (collapsePastes) pasteStart = { offset: wholeLineEnd, displayLength: display.length };
           consumed = true;
         }
       }
@@ -711,7 +696,7 @@ export function splitTranscriptAttachments(
     cursor = wholeLineEnd;
   }
 
-  return { display: trimDisplay ? display.trim() : display, images, files };
+  return { display: trimDisplay ? display.trim() : display, images, files, ...(pastes.length ? { pastes } : {}) };
 }
 
 export function splitAttachedImages(text: string): { display: string; images: string[] } {
@@ -830,11 +815,17 @@ export async function intakeFiles<T extends DroppedFile & { type: string }>(
     } catch (err) {
       return { attachments: [], rejectedNames: [], ...failed(file, err) };
     }
-    const result = await attachmentsFromDroppedFiles([file], getPath);
-    if (!result.rejectedNames.length) return result;
+    let path = "";
+    try {
+      path = getPath(file);
+    } catch {
+    }
+    if (path) return { attachments: [fileAttachment(file.name, path, file.size)], rejectedNames: [] };
     try {
       const attachment = await uploadFile(file, true);
-      return attachment ? { attachments: [attachment], rejectedNames: [] } : result;
+      return attachment
+        ? { attachments: [attachment], rejectedNames: [] }
+        : { attachments: [], rejectedNames: [file.name] };
     } catch (err) {
       return { attachments: [], rejectedNames: [], ...failed(file, err) };
     }

@@ -78,6 +78,7 @@ import { useComposerDockPad } from "@/lib/composer-dock";
 import { GlassBar, GlassScrollFrame } from "./GlassScrollFrame";
 import { awaitedMemberId, showWorkingDots } from "@/lib/turn-tail";
 import { turnNowPhrases } from "@/lib/live-activity"; import { useTurnLive } from "@/state/turn-status"; import { isLiveReply, StreamingReplyContext, streamedReply, useLiveTranscript } from "@/state/live-reply";
+import { SentPastedText } from "./ComposerAttachments";
 import { splitTranscriptAttachments } from "@/lib/composer-attachments";
 import { useTranscriptViewport } from "@/hooks/use-transcript-viewport"; import { staysInView } from "../../shared/person-wait";
 import { useUnreadDivider } from "@/hooks/use-unread-divider";
@@ -158,10 +159,10 @@ function RoomTextMessage({
   const speaker = otherSpeaker(m, reactor !== "user" ? reactor : null);
   const rawText = user ? (m.text ?? "") : stripLeakedSystemHarnessMessages(m.text ?? "");
   const cited = user && m.text ? splitTranscriptCitations(m.text) : null;
-  const attachments = user && m.text ? splitTranscriptAttachments(cited?.display ?? m.text) : null;
+  const attachments = user && m.text ? splitTranscriptAttachments(cited?.display ?? m.text, true, true, { collapsePastes: true }) : null;
   const display = attachments?.display ?? rawText;
   const attachmentsOnly = !m.replyToId && !display.trim() && Boolean(user
-    ? attachments?.images.length || attachments?.files.length || cited?.citations.length
+    ? attachments?.images.length || attachments?.files.length || attachments?.pastes?.length || cited?.citations.length
     : m.attachments?.length);
   const [expanded, setExpanded] = useState(false);
   const [viewRaw, setViewRaw] = useState(false);
@@ -244,6 +245,7 @@ function RoomTextMessage({
           {user ? (
             <>
               {attachments && <AttachmentGallery images={attachments.images} files={attachments.files} message={{ threadId: group.threadId, messageId: m.id }} eager={eager} alignEnd className={!attachments.display ? "mb-0" : undefined} />}
+              {attachments?.pastes && <SentPastedText pastes={attachments.pastes} />}
               <div
                 className={cn(collapsible && "max-h-40 overflow-hidden [mask-image:linear-gradient(to_bottom,black_60%,transparent)]")}
                 data-citation-source={m.id}

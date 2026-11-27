@@ -218,16 +218,21 @@ describe("intakeFiles", () => {
     expect(out.notice).toBe("Unable to attach run.exe. Choose a supported image, document, or audio file.");
   });
 
-  it("uploads a browser file of any other type as a plain download", async () => {
+  it.each([
+    ["Setup.exe", "application/x-msdownload", "MZ"],
+    ["Report.html", "text/html", "<!doctype html><title>Report</title>"],
+    ["Styles.css", "text/css", "body { color: black; }"],
+  ])("uploads a pathless %s as a named file", async (name, type, contents) => {
+    const input = new File([contents], name, { type });
     const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
-      path: "/private/attachments/id.bin", name: "Setup.exe", bytes: 2,
+      path: "/private/attachments/id.bin", name, bytes: input.size,
     }), { status: 201, headers: { "content-type": "application/json" } }));
     try {
-      const out = await intakeFiles([new File(["MZ"], "Setup.exe", { type: "application/x-msdownload" })], {
+      const out = await intakeFiles([input], {
         allowImages: true, getPath: () => "", uploadImage: async () => null,
       });
-      expect(fetch.mock.calls[0]![1]).toMatchObject({ headers: { "content-type": "application/x-msdownload" } });
-      expect(out.attachments).toEqual([expect.objectContaining({ kind: "file", name: "Setup.exe", path: "/private/attachments/id.bin" })]);
+      expect(fetch.mock.calls[0]![1]).toMatchObject({ headers: { "content-type": type }, body: input });
+      expect(out.attachments).toEqual([expect.objectContaining({ kind: "file", name, path: "/private/attachments/id.bin" })]);
       expect(out.problems).toEqual([]);
       expect(out.notice).toBeNull();
     } finally {

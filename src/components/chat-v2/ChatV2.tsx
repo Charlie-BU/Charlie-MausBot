@@ -5,6 +5,7 @@ import { useTeammates } from "@/state/team-people";
 import { groupChatWork, type TranscriptItem } from "@/lib/activity-runs";
 import { cn } from "@/lib/cn";
 import { useMenuMotion } from "../MenuMotion";
+import { SentPastedText } from "../ComposerAttachments";
 import { splitTranscriptAttachments } from "@/lib/composer-attachments";
 import { stateForBot } from "@/lib/mascot";
 import { JumpToLatestButton } from "../JumpToLatestButton";
@@ -145,17 +146,17 @@ export const Row = memo(function Row({ message: m, botId, botName, color, thread
   const peer = peerLine(m) ?? peerRequest(m, botId);
   const own = m.role === "user" && !peer;
   const messageText = peer?.body ?? (own ? m.text : stripLeakedSystemHarnessMessages(botLineText(m))) ?? "";
-  const legacy = own ? splitTranscriptAttachments(messageText) : null;
+  const legacy = own ? splitTranscriptAttachments(messageText, true, true, { collapsePastes: true }) : null;
   const text = legacy?.display ?? messageText;
   const attached = legacy && splitMessageAttachments(m.attachments);
   const images = legacy && attached && [...legacy.images, ...attached.images];
   const files = legacy && attached && [...legacy.files, ...attached.files];
   const voiceNotes = m.attachments?.filter(a => a.kind === "audio");
   const attachmentsOnly = !m.replyToId && !text.trim() &&
-    Boolean(images?.length || files?.length || m.attachments?.length);
+    Boolean(images?.length || files?.length || m.attachments?.length || legacy?.pastes?.length);
   const bare = attachmentsOnly || (!m.replyToId && !voiceNotes?.length && !raw && isImageOnlyMarkdown(text));
   const attachmentContext = { threadId, messageId: m.id };
-  if (!text && !m.attachments?.length && !images?.length && !files?.length) return null;
+  if (!text && !m.attachments?.length && !images?.length && !files?.length && !legacy?.pastes?.length) return null;
   return <article className="v2-message" data-own={own || undefined}>
     {peer && <b className="text-xs text-ink-secondary">{peer.name}</b>}
     <div className="v2-bubble-row group" {...{ [MESSAGE_ROW]: "" }}>
@@ -163,6 +164,7 @@ export const Row = memo(function Row({ message: m, botId, botName, color, thread
     {images && files && <AttachmentGallery images={images}
       files={[...files, ...collectMessageFiles(text, [...images.map(image => typeof image === "string" ? image : image.path), ...files.map(file => file.path)])]}
       originals={attached?.originals} message={attachmentContext} photoStrip="square" alignEnd />}
+    {legacy?.pastes && <SentPastedText pastes={legacy.pastes} />}
     {((text && !attachmentsOnly) || m.replyToId || !own || voiceNotes?.length) &&
     <div className={bare ? "v2-body v2-body-bare" : own ? "v2-body user-bubble-colored" : "v2-body"} dir="auto"
       style={own && !bare ? ownBubbleStyle : undefined} data-chat-bubble={attachmentsOnly ? undefined : ""} data-look={own && !bare ? "user-bubble" : undefined}
