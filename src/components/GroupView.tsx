@@ -350,16 +350,8 @@ export const Transcript = memo(function Transcript({
   const newestMessageId = messages.at(-1)?.id;
   const newestUserMessageId = [...messages].reverse().find((message) => message.role === "user")?.id;
   const roomBusy = roomThreadWorking(group, group.threadId);
-  let retryableId: string | undefined;
-  let retryableIndex = -1;
-  for (let index = transcript.length - 1; index >= 0; index -= 1) {
-    const candidate = transcript[index];
-    if (candidate && candidate.kind !== "digest" && candidate.kind !== "compaction") {
-      retryableId = candidate.id;
-      retryableIndex = index;
-      break;
-    }
-  }
+  const retryableIndex = transcript.findLastIndex(candidate => candidate && candidate.kind !== "digest" && candidate.kind !== "compaction");
+  const retryableId = transcript[retryableIndex]?.id;
   const retryRequest = useMemo(() => {
     const newest = transcript[retryableIndex];
     return newest && isCancelledTranscriptRow(newest) ? roomRetryRequest(transcript, retryableIndex) : null;
