@@ -415,7 +415,7 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
           the window's rail: its top corners and its bottom-left corner are round, and it runs to the window's right and
           bottom edges. */}
       <div data-window-card={framed ? "" : undefined}
-        className={framed ? "relative flex min-w-0 flex-1 flex-col overflow-hidden rounded-t-[12px] rounded-bl-[12px] bg-app" : "contents"}>
+        className={framed ? "relative flex min-w-0 flex-1 flex-col overflow-clip rounded-t-[12px] rounded-bl-[12px] bg-app" : "contents"}>
       {framed && strips}
       <div className={framed ? "relative flex min-h-0 flex-1" : "contents"}>
       <Sidebar
