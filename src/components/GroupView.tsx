@@ -1104,16 +1104,6 @@ export function GroupView({ group, inForkPanel = false }: { group: Group; inFork
             unreadDividerFading={unreadDivider.fading}
             onReply={selectReply}
           />
-          {laterCount > 0 && (
-            <div className="flex justify-center">
-              <button
-                onClick={showLater}
-                className="rounded-full border border-hairline/40 bg-panel px-3 py-1 text-[13px] text-ink-secondary interaction:bg-raised/50 hover:text-ink"
-              >
-                {t("chat.showLater", { count: laterCount })}
-              </button>
-            </div>
-          )}
           {(speaker || presenceVisible) && (
             <TurnPresence
               avatar={
@@ -1156,9 +1146,8 @@ export function GroupView({ group, inForkPanel = false }: { group: Group; inFork
 
       <TranscriptAnnouncer threadKey={transcriptKey} snapshot={announcement} />
 
-      {showJumpToLatest && (
-        <JumpToLatestButton onClick={jumpToLatest} style={{ bottom: composerDock.height }} />
-      )}
+      <JumpToLatestButton jumpToLatest={jumpToLatest} showJumpToLatest={showJumpToLatest} showLater={showLater}
+        laterCount={laterCount} style={{ bottom: composerDock.height }} />
 
       <div ref={composerDockRef} className="absolute inset-x-0 bottom-0 z-[2] chat-column-dock">
       <RoomComposer

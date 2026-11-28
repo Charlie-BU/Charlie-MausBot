@@ -436,10 +436,11 @@ export function ChatV2({ profile, phoneLayout = false }: { profile: Bot; phoneLa
             </ChatWork>;
           }} />
         </ChatImagePreloads.Provider>
-        {viewport.laterCount > 0 && <button onClick={viewport.showLater}>{t("chat.showLater", { count: viewport.laterCount })}</button>}
       </div>
     </div>
-    <footer className="v2-dock chat-column-dock">{(viewport.showJumpToLatest || viewport.laterCount > 0) && <JumpToLatestButton className="v2-jump-to-latest bottom-full mb-2" onClick={viewport.jumpToLatest} />}
+    <footer className="v2-dock chat-column-dock">
+      <JumpToLatestButton className="v2-jump-to-latest bottom-full mb-2" jumpToLatest={viewport.jumpToLatest}
+        showJumpToLatest={viewport.showJumpToLatest} showLater={viewport.showLater} laterCount={viewport.laterCount} />
       <LiveCallBar bot={bot} />
       <ChatV2Presence bot={bot} stopping={stopping} />
       {writable ? <Composer bot={profile} chatHistory={historyPage.history} smoothHeight onSendFrom={(sendId, input) => {
