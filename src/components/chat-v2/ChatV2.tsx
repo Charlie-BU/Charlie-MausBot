@@ -291,7 +291,7 @@ export function ChatV2({ profile, phoneLayout = false }: { profile: Bot; phoneLa
   const focusId = focused?.threadId === bot.threadId ? focused.messageId : undefined;
   const { hiddenIds, requestDelete, dialog: deleteDialog } = useHiddenMessages(bot.threadId);
   const userName = useStoreSelector(s => s.config?.profile?.name);
-  const { pins, update, pinnedIds } = useChatPins(bot, messageById, userName, writable);
+  const { pins, update, pinnedIds, pendingIds } = useChatPins(bot, messageById, userName, writable);
   const visiblePins = useMemo(() => pins.filter(pin => !hiddenIds.has(pin.id)), [pins, hiddenIds]);
   const items = useMemo(() => groupChatWork(messages, busy, history, focusId).flatMap<TranscriptItem>(item => {
     if (item.kind === "message") return hiddenIds.has(item.message.id) ? [] : [item];
@@ -379,7 +379,7 @@ export function ChatV2({ profile, phoneLayout = false }: { profile: Bot; phoneLa
       {message.id === unread.messageId && <NewMessagesDivider fading={unread.fading} />}
       {editing?.id === message.id ? <form onSubmit={e => { e.preventDefault(); const text = String(new FormData(e.currentTarget).get("text") ?? "").trim(); if (text) { dispatch({ type: "editMessage", botId: bot.id, threadId: bot.threadId, messageId: editing.id, text }); setEditing(null); } }}>
         <input autoFocus className="outline-none focus:bg-raised/50" name="text" defaultValue={editing.text} onKeyDown={e => { if (e.key === "Escape") setEditing(null); }} /></form> :
-        <Row pinned={pinnedIds.has(message.id)} onPin={writable ? update : undefined} onDelete={requestDelete} mentionPeers={mentionPeers} phoneLayout={phoneLayout} ownBubbleStyle={ownBubbleStyle} digest={digestByReply.get(message.id)} message={message} botId={bot.id} botName={bot.name} color={bot.color} threadId={bot.threadId}
+        <Row pinned={pinnedIds.has(message.id)} onPin={writable && !pendingIds.has(message.id) ? update : undefined} onDelete={requestDelete} mentionPeers={mentionPeers} phoneLayout={phoneLayout} ownBubbleStyle={ownBubbleStyle} digest={digestByReply.get(message.id)} message={message} botId={bot.id} botName={bot.name} color={bot.color} threadId={bot.threadId}
           busy={busy} hasMore={message.kind === "call" && historyPage.hasMore}
           failure={message.tool && failedTurnCause(message.tool.name) !== null
             ? <FailedTurnRow tool={message.tool} engine={engine} botId={bot.id} threadId={bot.threadId}
@@ -411,7 +411,7 @@ export function ChatV2({ profile, phoneLayout = false }: { profile: Bot; phoneLa
       </div>
     </div>
     <div className="v2-banners">
-      <ChatPins key={bot.threadId} pins={visiblePins} remove={writable ? id => update(id, false) : undefined} jump={id => historyPage.jumpTo(id, messageById.has(id))} />
+      <ChatPins key={bot.threadId} pins={visiblePins} pendingIds={pendingIds} remove={writable ? id => update(id, false) : undefined} jump={id => historyPage.jumpTo(id, messageById.has(id))} />
       {findOpen && <ChatFindBar threadId={bot.threadId} inForkPanel={false} onClose={() => setFindOpen(false)} />}
       <ChatErrorBanner message={error} onDismiss={() => dispatch({ type: "error", message: null })} />
     </div>

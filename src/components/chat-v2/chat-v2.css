@@ -279,8 +279,8 @@
 .v2-pin-row button { display:flex; align-items:center; justify-content:center; min-height:36px; min-width:32px; color:var(--color-ink-secondary); }
 .v2-pin-row button:hover { color:var(--color-ink); background:transparent; }
 .v2-pin-row .v2-pin-jump { flex:1; min-width:0; justify-content:start; text-align:start; font-size:14px; }
-.v2-pin-remove svg:last-child, .v2-pin-remove:is(:hover, :focus-visible) svg:first-child { display:none; }
-.v2-pin-remove:is(:hover, :focus-visible) svg:last-child { display:block; }
+.v2-pin-remove:not(:disabled) svg:last-child, .v2-pin-remove:not(:disabled):is(:hover, :focus-visible) svg:first-child { display:none; }
+.v2-pin-remove:not(:disabled):is(:hover, :focus-visible) svg:last-child { display:block; }
 .v2-pin-list { display:grid; grid-template-rows:0fr; transition:grid-template-rows 180ms ease; }
 .v2-pin-list[data-open=true] { grid-template-rows:1fr; }
 .v2-pin-list > div { min-height:0; overflow:auto; max-height:32dvh; }
@@ -293,9 +293,11 @@
   .v2-pin-list, .v2-pin-toggle, .v2-pin-toggle svg { transition:none; }
 }
 .v2-banners:empty { display:none; }
+@keyframes v2-pin-spin { to { transform:rotate(360deg); } }
 @keyframes v2-pin-fade { from { opacity:0; } to { opacity:1; } }
 @keyframes v2-pin-leave { to { opacity:0; } }
 @media (prefers-reduced-motion:no-preference) {
-  :root:not([data-reduced-motion=true]) :is(.v2-pins,.v2-pin-row) { animation:v2-pin-fade 200ms ease-out; }
-  :root:not([data-reduced-motion=true]) :is(.v2-pins,.v2-pin-row)[data-leaving] { animation:v2-pin-leave 200ms ease-in forwards; }
+  :root:not([data-reduced-motion=true]) .v2-pin-loading { animation:v2-pin-spin 1s linear infinite; }
+  :root:not([data-reduced-motion=true]) .v2-pin-row { animation:v2-pin-fade 200ms ease-out; }
+  :root:not([data-reduced-motion=true]) .v2-pin-row[data-leaving] { animation:v2-pin-leave 200ms ease-in forwards; }
 }
